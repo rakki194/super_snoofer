@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 authors = ["_ka_de"]
 description = "A fuzzy command finder that suggests similar commands when a typo is made"
+license = "MIT"
+repository = "https://github.com/rakki194/super_snoofer"
+documentation = "https://docs.rs/super_snoofer"
+homepage = "https://github.com/rakki194/super_snoofer"
+keywords = ["cli", "fuzzy-search", "command-line", "suggestions"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 strsim = "0.11.1"
