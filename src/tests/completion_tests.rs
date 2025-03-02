@@ -1,6 +1,7 @@
 use crate::{CommandCache, HistoryTracker};
 use anyhow::Result;
 use tempfile::TempDir;
+use std::fs;
 
 /// Test for frequent command suggestion functionality
 #[test]
@@ -452,5 +453,116 @@ fn test_combined_completion_features() -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+/// Test that unsuccessful commands are not included in suggestions
+#[test]
+fn test_successful_command_filtering() -> Result<()> {
+    // Create a temp directory for our cache
+    let temp_dir = TempDir::new()?;
+    let cache_path = temp_dir.path().join("test_cache.json");
+
+    // Create a new cache with the temp path
+    let mut cache = CommandCache::new();
+    cache.set_cache_path(cache_path);
+
+    // Enable history tracking for the cache
+    cache.enable_history()?;
+
+    // Add a successful command - use a distinctive name
+    cache.record_valid_command("test_successful_command_xyz");
+    
+    // Add a failed command - use a distinctive name
+    cache.record_failed_command("test_failed_command_xyz");
+    
+    // Save the cache to ensure it's persisted
+    cache.save()?;
+    
+    // Get command history directly
+    let history = cache.history_manager().get_command_history(100);
+    
+    // Print out history for debugging
+    println!("Command history: {:#?}", history);
+    
+    // Create HashSet of successful commands 
+    let mut successful_commands = std::collections::HashSet::new();
+    
+    // Process history entries to build successful commands set
+    for entry in &history {
+        if entry.success {
+            successful_commands.insert(entry.correction.clone());
+        }
+    }
+    
+    // Print out successful commands
+    println!("Successful commands: {:?}", successful_commands);
+    
+    // Check that successful command is in the set
+    assert!(successful_commands.contains("test_successful_command_xyz"), 
+            "Successful command should be marked as successful");
+    
+    // Check if failed command is properly filtered out
+    let failed_included = successful_commands.contains("test_failed_command_xyz");
+    assert!(!failed_included, "Failed command should not be in successful commands set");
+
+    Ok(())
+}
+
+/// Test file and directory completion functionality
+#[test]
+fn test_file_directory_completion() -> Result<()> {
+    // Create a temp directory for our test files
+    let temp_dir = TempDir::new()?;
+    let temp_path = temp_dir.path();
+    
+    // Create some test directories and files
+    fs::create_dir(temp_path.join("test_dir"))?;
+    fs::create_dir(temp_path.join("another_dir"))?;
+    fs::write(temp_path.join("test_file.txt"), "content")?;
+    
+    // Print created paths for debugging
+    println!("Created test directory at: {:?}", temp_path);
+    println!("Created test_dir at: {:?}", temp_path.join("test_dir"));
+    println!("Created another_dir at: {:?}", temp_path.join("another_dir"));
+    println!("Created test_file.txt at: {:?}", temp_path.join("test_file.txt"));
+    
+    // Change to the temporary directory
+    let old_dir = std::env::current_dir()?;
+    std::env::set_current_dir(temp_path)?;
+    
+    // Print current directory for debugging
+    println!("Current directory: {:?}", std::env::current_dir()?);
+    
+    // Test directory completion for 'cd'
+    let cd_completions = crate::cache::generate_full_completion("cd ");
+    println!("cd completions: {:?}", cd_completions);
+    
+    // Check directory suggestions for cd command
+    assert!(cd_completions.iter().any(|s| s.contains("test_dir")), "Should suggest directories for cd command");
+    assert!(cd_completions.iter().any(|s| s.contains("another_dir")), "Should suggest directories for cd command");
+    
+    // Directories should end with a slash
+    assert!(cd_completions.iter().any(|s| s.contains("test_dir/")), "Directory completions should end with a slash");
+    
+    // cd should not suggest files
+    assert!(!cd_completions.iter().any(|s| s.contains("test_file.txt")), "cd command should not suggest files");
+    
+    // Test file completion for 'cat'
+    let cat_completions = crate::cache::generate_full_completion("cat test_");
+    println!("cat test_ completions: {:?}", cat_completions);
+    
+    // Check file suggestions with partial matching
+    assert!(cat_completions.iter().any(|s| s.contains("test_file.txt")), "Should suggest files for cat command with prefix");
+    
+    // Test path-based completion
+    let path_completions = crate::cache::generate_full_completion("cat ./test_");
+    println!("cat ./test_ completions: {:?}", path_completions);
+    
+    assert!(path_completions.iter().any(|s| s.contains("./test_file.txt")), "Should handle relative path completions");
+    
+    // Restore the previous working directory
+    std::env::set_current_dir(old_dir)?;
+    
     Ok(())
 }

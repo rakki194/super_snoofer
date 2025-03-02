@@ -13,6 +13,9 @@ pub struct CommandHistoryEntry {
     pub typo: String,
     pub correction: String,
     pub timestamp: SystemTime,
+    /// Whether the command was executed successfully
+    #[serde(default)]
+    pub success: bool,
 }
 
 /// Gets whether history tracking is enabled by default
@@ -104,8 +107,42 @@ impl HistoryManager {
             .entry(base_command.to_string())
             .or_insert(0) += 1;
 
-        // Optionally, we could record the full command and some other metadata
-        // But for now, just updating frequency is sufficient
+        // Add to history with success flag set to true
+        self.command_history.push_front(CommandHistoryEntry {
+            typo: command.to_string(),
+            correction: command.to_string(),
+            timestamp: SystemTime::now(),
+            success: true,
+        });
+
+        // Ensure we don't exceed the maximum history size
+        if self.command_history.len() > MAX_HISTORY_SIZE {
+            self.command_history.pop_back();
+        }
+    }
+
+    /// Add a failed command to the history
+    /// This helps track what commands have never executed successfully
+    pub fn add_failed_command(&mut self, command: &str) {
+        // Skip recording if history is disabled
+        if !self.history_enabled {
+            return;
+        }
+
+        // We don't update frequency counters for failed commands
+        
+        // Add to history with success flag set to false
+        self.command_history.push_front(CommandHistoryEntry {
+            typo: command.to_string(),
+            correction: command.to_string(),
+            timestamp: SystemTime::now(),
+            success: false,
+        });
+
+        // Ensure we don't exceed the maximum history size
+        if self.command_history.len() > MAX_HISTORY_SIZE {
+            self.command_history.pop_back();
+        }
     }
 
     /// Find a similar command with frequency bias
@@ -144,6 +181,7 @@ impl HistoryTracker for HistoryManager {
             typo: typo.to_string(),
             correction: correction.to_string(),
             timestamp: SystemTime::now(),
+            success: true,
         });
 
         // Ensure we don't exceed the maximum history size
