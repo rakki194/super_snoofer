@@ -675,8 +675,10 @@ fn find_closest_match<'a>(query: &str, options: &[&'a String], threshold: f64) -
     for option in options {
         // Calculate similarity using Levenshtein distance
         let distance = strsim::levenshtein(query, option);
-        let max_len = query.len().max(option.len()) as f64;
-        let score = if max_len == 0.0 { 1.0 } else { 1.0 - (distance as f64 / max_len) };
+        // Convert to u32 first to avoid precision loss
+        let max_len = f64::from(u32::try_from(query.len().max(option.len())).unwrap_or(u32::MAX));
+        let distance_f64 = f64::from(u32::try_from(distance).unwrap_or(u32::MAX));
+        let score = if max_len == 0.0 { 1.0 } else { 1.0 - (distance_f64 / max_len) };
 
         if score > best_score && score >= threshold {
             best_score = score;
