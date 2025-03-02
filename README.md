@@ -91,16 +91,19 @@ Super Snoofer works automatically once integrated with your shell. When you type
 ### Command Line Options
 
 ```bash
-super_snoofer <command>              # Normal operation: suggest similar commands
-super_snoofer --reset_cache          # Clear the command cache but keep learned corrections
-super_snoofer --reset_memory         # Clear both the command cache and learned corrections
-super_snoofer --history              # Display your recent command corrections
-super_snoofer --frequent-typos       # Display your most common typos
-super_snoofer --frequent-corrections # Display your most frequently used corrections
-super_snoofer --clear-history        # Clear your command history
-super_snoofer --enable-history       # Enable command history tracking
-super_snoofer --disable-history      # Disable command history tracking
-super_snoofer --suggest              # Suggest personalized shell aliases
+super_snoofer <command>                     # Normal operation: suggest similar commands
+super_snoofer --reset_cache                 # Clear the command cache but keep learned corrections
+super_snoofer --reset_memory                # Clear both the command cache and learned corrections
+super_snoofer --history                     # Display your recent command corrections
+super_snoofer --frequent-typos              # Display your most common typos
+super_snoofer --frequent-corrections        # Display your most frequently used corrections
+super_snoofer --clear-history               # Clear your command history
+super_snoofer --enable-history                 # Enable command history tracking
+super_snoofer --disable-history               # Disable command history tracking
+super_snoofer --suggest                       # Suggest personalized shell aliases
+super_snoofer --check-command-line "CMD"      # Check command line for corrections 
+super_snoofer --full-command "CMD"            # Process a full command line (for shell integration)
+super_snoofer --learn-correction "TYPO" "CMD" # Manually teach a command correction
 ```
 
 ### Example Interactions
@@ -639,3 +642,35 @@ Super Snoofer can not only suggest aliases but also handle the entire configurat
 5. Suggests reload commands after configuration changes
 
 This makes it simple to integrate Super Snoofer with your workflow without needing to remember shell-specific configuration details.
+
+### Teaching Manual Corrections
+
+Super Snoofer can learn from your manual corrections automatically when you use it. However, sometimes you might want to manually teach Super Snoofer about specific corrections without waiting for it to learn through interaction.
+
+You can use the `--learn-correction` flag to manually teach Super Snoofer about a command correction:
+
+```bash
+$ super_snoofer --learn-correction "crgo" "cargo"
+Got it! 🐺 I'll remember that 'crgo' means 'cargo'
+```
+
+After teaching this correction, Super Snoofer will automatically suggest "cargo" when you type "crgo" in the future:
+
+```bash
+$ crgo build
+Command 'crgo' not found! Did you mean:
+1. cargo build
+2. Enter custom command
+3. Add permanent shell alias
+4. Exit without running
+Enter your choice (1-4):
+```
+
+You can teach corrections for complex commands as well:
+
+```bash
+$ super_snoofer --learn-correction "dc" "docker-compose"
+Got it! 🐺 I'll remember that 'dc' means 'docker-compose'
+```
+
+These learned corrections persist between sessions and will be used for all future command suggestions.

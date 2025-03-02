@@ -116,6 +116,84 @@ fn handle_suggestion_command(command: &str) -> Result<()> {
     }
 }
 
+/// Handle command line check for ZSH integration
+fn handle_check_command_line(command: &str, args: &[String]) -> Result<()> {
+    if command == "--check-command-line" && args.len() >= 3 {
+        // Load cache
+        let cache = CommandCache::load()?;
+        
+        // Reconstruct the command line to check
+        let command_line = args[2..].join(" ");
+        
+        // Try to fix the command line
+        if let Some(fixed_command_line) = cache.fix_command_line(&command_line) {
+            if fixed_command_line != command_line {
+                // Only print the correction if it's different from the input
+                println!("{}", fixed_command_line);
+            }
+        }
+        
+        exit(0);
+    }
+    
+    Ok(())
+}
+
+/// Handle full command line processing for shell integration
+fn handle_full_command(command: &str, args: &[String]) -> Result<()> {
+    if command == "--full-command" && args.len() >= 3 {
+        // Load cache
+        let mut cache = CommandCache::load()?;
+        
+        // Extract the main command and the full command line
+        let full_cmd = args[2..].join(" ");
+        let cmd_parts: Vec<&str> = full_cmd.splitn(2, ' ').collect();
+        let typed_command = cmd_parts[0];
+        
+        // Check if the command exists in PATH or as an alias
+        if cache.command_exists(typed_command)? {
+            // Command exists, just pass through
+            let status = Command::new("sh")
+                .arg("-c")
+                .arg(&full_cmd)
+                .status()?;
+            
+            exit(status.code().unwrap_or(1));
+        }
+        
+        // Try to fix the entire command line first
+        if full_cmd.contains(' ') {
+            if let Some(fixed_command_line) = cache.fix_command_line(&full_cmd) {
+                // We found a correction for the entire command line
+                let corrections = vec![fixed_command_line];
+                
+                // Display correction options
+                return process_correction_options(
+                    typed_command,
+                    &full_cmd,
+                    &corrections,
+                    &mut cache,
+                );
+            }
+        }
+        
+        // If full command line correction failed, fall back to command-only correction
+        let corrections = suggestion::get_command_suggestions(typed_command, &cache);
+        
+        if corrections.is_empty() {
+            println!("Command '{typed_command}' not found! 🐺");
+            exit(127); // Standard "command not found" exit code
+        }
+        
+        // Display correction options
+        process_correction_options(typed_command, &full_cmd, &corrections, &mut cache)?;
+        
+        exit(0);
+    }
+    
+    Ok(())
+}
+
 /// Handle help display
 fn handle_help_command(command: &str) {
     if command == "--help" || command == "-h" {
@@ -124,19 +202,42 @@ fn handle_help_command(command: &str) {
         println!("  super_snoofer [OPTION]");
         println!("  super_snoofer [COMMAND] [OPTIONS]");
         println!("\nOptions:");
-        println!("  --help, -h             Show this help message");
-        println!("  --reset_cache          Clear the command cache");
-        println!("  --reset_memory         Clear the cache and learned corrections");
-        println!("  --history              Show command history");
-        println!("  --frequent-typos       Show most common typos");
-        println!("  --frequent-corrections Show most used corrections");
-        println!("  --clear-history        Clear command history");
-        println!("  --enable-history       Enable command history tracking");
-        println!("  --disable-history      Disable command history tracking");
-        println!("  --add-alias NAME [CMD] Add shell alias (default: super_snoofer)");
-        println!("  --suggest              Suggest personalized shell aliases");
+        println!("  --help, -h                   Show this help message");
+        println!("  --reset_cache                Clear the command cache");
+        println!("  --reset_memory               Clear the cache and learned corrections");
+        println!("  --history                    Show command history");
+        println!("  --frequent-typos             Show most common typos");
+        println!("  --frequent-corrections       Show most used corrections");
+        println!("  --clear-history              Clear command history");
+        println!("  --enable-history             Enable command history tracking");
+        println!("  --disable-history            Disable command history tracking");
+        println!("  --add-alias NAME [CMD]       Add shell alias (default: super_snoofer)");
+        println!("  --suggest                    Suggest personalized shell aliases");
+        println!("  --check-command-line         Check command line for corrections");
+        println!("  --full-command CMD           Process a full command line (for shell integration)");
+        println!("  --learn-correction TYPO CMD  Manually teach a command correction");
         exit(0);
     }
+}
+
+/// Handle manually learning a command correction
+fn handle_learn_correction(command: &str, args: &[String]) -> Result<()> {
+    if command == "--learn-correction" && args.len() >= 4 {
+        // Load the cache
+        let mut cache = CommandCache::load()?;
+        
+        // Extract the typo and correction from args
+        let typo = &args[2];
+        let correction = &args[3];
+        
+        // Learn the correction
+        cache.learn_correction(typo, correction)?;
+        
+        println!("Got it! 🐺 I'll remember that '{}' means '{}'", typo, correction);
+        exit(0);
+    }
+    
+    Ok(())
 }
 
 /// Process an unrecognized command and suggest corrections
@@ -152,7 +253,25 @@ fn process_command(typed_command: &str, command_line: &str) -> Result<()> {
         exit(status.code().unwrap_or(1));
     }
 
-    // Command not found, suggest corrections
+    // Try to fix the entire command line first
+    if command_line.contains(' ') {
+        // Command includes arguments, try to fix the entire line
+        if let Some(fixed_command_line) = cache.fix_command_line(command_line) {
+            // We found a correction for the entire command line
+            let corrections = vec![fixed_command_line];
+
+            // Display correction options
+            return process_correction_options(
+                typed_command,
+                command_line,
+                &corrections,
+                &mut cache,
+            );
+        }
+    }
+
+    // If full command line correction failed or there were no arguments,
+    // fall back to command-only correction
     let corrections = suggestion::get_command_suggestions(typed_command, &cache);
 
     if corrections.is_empty() {
@@ -386,6 +505,9 @@ fn main() -> Result<()> {
         handle_history_tracking_commands(command)?;
         handle_shell_integration(command, &args)?;
         handle_suggestion_command(command)?;
+        handle_check_command_line(command, &args)?;
+        handle_full_command(command, &args)?;
+        handle_learn_correction(command, &args)?;
         handle_help_command(command);
 
         // If we get here, it's an unrecognized command
