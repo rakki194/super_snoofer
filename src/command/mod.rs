@@ -141,7 +141,7 @@ impl CommandPatterns {
         // For common git subcommands, be more lenient with the threshold
         if command == "git" && arg.starts_with("sta") && arg.len() > 3 {
             // Direct handling of common typos for "status"
-            if arg == "stauts" || arg == "statsu" || arg == "stauts" || arg == "statuss" || arg == "staus" {
+            if arg == "stauts" || arg == "statsu" || arg == "statuss" || arg == "staus" {
                 return Some("status".to_string());
             }
         }

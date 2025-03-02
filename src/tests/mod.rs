@@ -542,7 +542,7 @@ pub mod tests {
             cache.insert("git");
             
             // Set up for command line correction
-            cache.fix_command_line("gti status");
+            let _ = cache.fix_command_line("gti status");
             
             // Record a correction that would result from the command line correction
             cache.record_correction("gti status", "git status");

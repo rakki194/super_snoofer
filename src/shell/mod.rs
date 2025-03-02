@@ -8,6 +8,11 @@ use std::{
 pub mod aliases;
 
 /// Detect the user's shell and return appropriate configuration details
+///
+/// # Errors
+/// Returns an error if:
+/// - The home directory cannot be found
+/// - Environment variables cannot be accessed
 pub fn detect_shell_config(
     alias_name: &str,
     correction: &str,
@@ -123,6 +128,12 @@ pub fn detect_shell_config(
 }
 
 /// Add an alias to the appropriate shell configuration file
+///
+/// # Errors
+/// Returns an error if:
+/// - The parent directory cannot be created
+/// - The configuration file cannot be opened or created
+/// - Writing to the configuration file fails
 pub fn add_to_shell_config(shell_type: &str, config_path: &Path, alias_line: &str) -> Result<()> {
     println!("Adding alias to {}", config_path.display());
     
@@ -155,13 +166,7 @@ pub fn add_to_shell_config(shell_type: &str, config_path: &Path, alias_line: &st
     
     // Generate appropriate reload command based on shell
     let reload_cmd = match shell_type {
-        "Bash" => format!("source {}", config_path.display()),
-        "Zsh" => format!("source {}", config_path.display()),
-        "Fish" => format!("source {}", config_path.display()),
-        "PowerShell" => format!(". {}", config_path.display()),
-        "Nushell" => format!("source {}", config_path.display()),
-        "Korn shell" => format!(". {}", config_path.display()),
-        "C shell" => format!("source {}", config_path.display()),
+        "PowerShell" | "Korn shell" => format!(". {}", config_path.display()),
         "Windows Command Prompt" => format!("call {}", config_path.display()),
         _ => format!("source {}", config_path.display()),
     };

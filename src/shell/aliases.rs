@@ -1,5 +1,6 @@
 use fancy_regex::Regex;
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::fs;
 
 /// Parse shell aliases from various shell config files
@@ -47,7 +48,7 @@ fn parse_bash_aliases() -> Option<HashMap<String, String>> {
 }
 
 /// Parse Bash/Zsh style alias definitions from content
-pub fn parse_bash_alias_content(content: &str, aliases: &mut HashMap<String, String>) {
+pub fn parse_bash_alias_content<S: BuildHasher>(content: &str, aliases: &mut HashMap<String, String, S>) {
     // Regular expression for alias: alias name='command' or alias name="command"
     if let Ok(re) = Regex::new(r#"^\s*alias\s+([a-zA-Z0-9_-]+)=(['"])(.+?)\2"#) {
         for line in content.lines() {
@@ -134,7 +135,7 @@ fn parse_fish_aliases() -> Option<HashMap<String, String>> {
 }
 
 /// Parse aliases from fish config content
-fn parse_fish_alias_content(content: &str, aliases: &mut HashMap<String, String>) {
+fn parse_fish_alias_content<S: BuildHasher>(content: &str, aliases: &mut HashMap<String, String, S>) {
     // Fish aliases can be defined as: alias name='command' or using functions
     // First try the alias command format
     if let Ok(re) = Regex::new(r#"^\s*alias\s+([a-zA-Z0-9_-]+)=(['"])(.+?)\2"#) {
@@ -170,24 +171,19 @@ fn parse_fish_alias_content(content: &str, aliases: &mut HashMap<String, String>
 }
 
 /// Parse fish function files for aliases
-fn parse_fish_function_alias(
+fn parse_fish_function_alias<S: BuildHasher>(
     content: &str,
     function_name: &str,
-    aliases: &mut HashMap<String, String>,
+    aliases: &mut HashMap<String, String, S>,
 ) {
     if let Ok(re) = Regex::new(r"(?:command|exec)\s+([^\s;]+)") {
         // Try to find command references in the function
-        let captures_iter = re.captures_iter(content);
-
-        // Process each capture result
-        for result in captures_iter {
-            if let Ok(caps) = result {
-                if let Some(cmd_match) = caps.get(1) {
-                    let cmd = cmd_match.as_str();
-                    aliases.insert(function_name.to_string(), cmd.to_string());
-                    // We only need the first match
-                    break;
-                }
+        for caps in re.captures_iter(content).flatten() {
+            if let Some(cmd_match) = caps.get(1) {
+                let cmd = cmd_match.as_str();
+                aliases.insert(function_name.to_string(), cmd.to_string());
+                // We only need the first match
+                break;
             }
         }
     }

@@ -82,6 +82,17 @@ impl CommandCache {
     }
     
     /// Load the command cache from the default location
+    /// 
+    /// # Returns
+    /// 
+    /// A `Result` containing the loaded cache or a new one if no cache exists
+    /// 
+    /// # Errors
+    /// 
+    /// This function will return an error if:
+    /// - The cache file exists but cannot be opened
+    /// - The cache file exists but cannot be parsed as valid JSON
+    /// - There is an error updating the cache if needed
     pub fn load() -> Result<Self> {
         // Try to find the cache file in the standard locations
         let cache_dir = dirs::cache_dir().or_else(dirs::home_dir);
@@ -100,8 +111,23 @@ impl CommandCache {
     }
     
     /// Load the command cache from a specific path
+    /// 
+    /// # Arguments
+    /// 
+    /// * `path` - The path to load the cache from
+    /// 
+    /// # Returns
+    /// 
+    /// A `Result` containing the loaded cache or a new one if no cache exists at the path
+    /// 
+    /// # Errors
+    /// 
+    /// This function will return an error if:
+    /// - The cache file exists but cannot be opened
+    /// - The cache file exists but cannot be parsed as valid JSON
+    /// - There is an error updating the cache if needed
     pub fn load_from_path(path: &Path) -> Result<Self> {
-        let mut cache = if path.exists() {
+        let cache = if path.exists() {
             // Try to load the existing cache
             let file = File::open(path)
                 .with_context(|| format!("Failed to open cache file at {}", path.display()))?;
@@ -128,15 +154,18 @@ impl CommandCache {
             cache
         } else {
             // Create a new cache
-            let mut cache = Self::default();
-            cache.cache_path = Some(path.to_path_buf());
+            let mut cache = Self {
+                cache_path: Some(path.to_path_buf()),
+                ..Default::default()
+            };
+            
+            // Ensure the cache is up to date
+            if cache.commands.is_empty() {
+                cache.update()?;
+            }
+            
             cache
         };
-        
-        // Ensure the cache is up to date
-        if cache.commands.is_empty() {
-            cache.update()?;
-        }
         
         Ok(cache)
     }
@@ -178,6 +207,17 @@ impl CommandCache {
     }
     
     /// Save the command cache to disk
+    /// 
+    /// # Returns
+    /// 
+    /// A `Result` indicating success or failure
+    /// 
+    /// # Errors
+    /// 
+    /// This function will return an error if:
+    /// - The parent directory for the cache file cannot be created
+    /// - The cache file cannot be created
+    /// - The cache cannot be serialized to JSON
     pub fn save(&self) -> Result<()> {
         if let Some(cache_path) = &self.cache_path {
             // Ensure the parent directory exists
@@ -197,6 +237,20 @@ impl CommandCache {
     }
     
     /// Learn a correction for a typo
+    /// 
+    /// # Arguments
+    /// 
+    /// * `typo` - The mistyped command
+    /// * `correct_command` - The correct command
+    /// 
+    /// # Returns
+    /// 
+    /// A `Result` indicating success or failure
+    /// 
+    /// # Errors
+    /// 
+    /// This function will return an error if:
+    /// - The cache cannot be saved to disk
     pub fn learn_correction(&mut self, typo: &str, correct_command: &str) -> Result<()> {
         // If the correction contains spaces, it likely contains arguments
         // In this case, we'll store the full correction for the typo
@@ -232,7 +286,18 @@ impl CommandCache {
         self.commands.insert(command.to_string());
     }
     
-    /// Update the command cache with the latest commands from PATH
+    /// Update the command cache with current PATH commands
+    /// 
+    /// # Returns
+    /// 
+    /// A `Result` indicating success or failure
+    /// 
+    /// # Errors
+    /// 
+    /// This function will return an error if:
+    /// - There is an error retrieving commands from PATH
+    /// - There is an error reading shell configuration files
+    /// - There is an error saving the updated cache to disk
     pub fn update(&mut self) -> Result<()> {
         self.update_path_commands();
         
@@ -351,6 +416,29 @@ impl CommandCache {
     #[cfg(test)]
     pub fn add_test_alias(&mut self, alias: &str, command: &str) {
         self.shell_aliases.insert(alias.to_string(), command.to_string());
+    }
+
+    /// Check if a command exists in PATH or shell aliases
+    ///
+    /// # Returns
+    /// 
+    /// Returns a Result<bool> indicating if the command exists
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if there's an issue updating the cache
+    pub fn command_exists(&self, command: &str) -> Result<bool> {
+        // Check if it's in our commands set
+        if self.contains(command) {
+            return Ok(true);
+        }
+        
+        // Check if it's an alias
+        if self.get_alias_target(command).is_some() {
+            return Ok(true);
+        }
+        
+        Ok(false)
     }
 }
 

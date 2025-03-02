@@ -5,6 +5,18 @@ use std::io::Write;
 use crate::{HistoryTracker, shell::{detect_shell_config, add_to_shell_config}};
 
 /// Generate a personalized alias suggestion based on command history
+/// 
+/// # Returns
+/// 
+/// A `Result` indicating success or failure
+/// 
+/// # Errors
+/// 
+/// This function will return an error if:
+/// - The command cache cannot be loaded
+/// - Shell configuration files cannot be detected
+/// - There is an error when adding aliases to shell configuration
+/// - There is an error reading user input
 pub fn suggest_alias_command() -> Result<()> {
     // Load the cache
     let cache = crate::CommandCache::load()?;
@@ -34,15 +46,12 @@ pub fn suggest_alias_command() -> Result<()> {
     let (selected_typo, count) = &top_typos[idx];
 
     // Get the correction for this typo
-    let correction =
-        if let Some(correction_for_typo) = cache.find_similar_with_frequency(selected_typo) {
-            correction_for_typo
-        } else {
-            println!(
-                "🐺 Couldn't find a correction for '{selected_typo}'. This is unexpected!"
-            );
-            return Ok(());
-        };
+    let Some(correction) = cache.find_similar_with_frequency(selected_typo) else {
+        println!(
+            "🐺 Couldn't find a correction for '{selected_typo}'. This is unexpected!"
+        );
+        return Ok(());
+    };
 
     // Generate the alias name
     let alias_name = if selected_typo.len() <= 3 {
@@ -112,4 +121,32 @@ pub fn suggest_alias_command() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Get command suggestions for a possibly misspelled command
+///
+/// # Arguments
+///
+/// * `command` - The potentially misspelled command
+/// * `cache` - The command cache to search through
+///
+/// # Returns
+///
+/// A vector of suggested commands that are similar to the input command
+#[must_use] pub fn get_command_suggestions(command: &str, cache: &crate::CommandCache) -> Vec<String> {
+    let mut suggestions = Vec::new();
+    
+    // First check if we have a learned correction
+    if let Some(correction) = cache.find_similar_with_frequency(command) {
+        suggestions.push(correction);
+    }
+    
+    // Then look for aliases and similar commands
+    if let Some(correction) = cache.get_closest_match(command, crate::cache::SIMILARITY_THRESHOLD) {
+        if !suggestions.contains(&correction) {
+            suggestions.push(correction);
+        }
+    }
+    
+    suggestions
 } 

@@ -6,6 +6,9 @@ use crate::HistoryTracker;
 pub const HISTORY_DISPLAY_LIMIT: usize = 20;
 
 /// Display command correction history
+///
+/// # Errors
+/// Returns an error if the command cache cannot be loaded
 pub fn display_command_history() -> Result<()> {
     let cache = crate::CommandCache::load()?;
 
@@ -38,6 +41,9 @@ pub fn display_command_history() -> Result<()> {
 }
 
 /// Display most frequent typos
+///
+/// # Errors
+/// Returns an error if the command cache cannot be loaded
 pub fn display_frequent_typos() -> Result<()> {
     let cache = crate::CommandCache::load()?;
 
@@ -64,6 +70,9 @@ pub fn display_frequent_typos() -> Result<()> {
 }
 
 /// Display most frequent corrections
+///
+/// # Errors
+/// Returns an error if the command cache cannot be loaded
 pub fn display_frequent_corrections() -> Result<()> {
     let cache = crate::CommandCache::load()?;
 

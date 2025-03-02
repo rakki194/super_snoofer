@@ -5,7 +5,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 /// Maximum number of entries in history
-pub const MAX_HISTORY_SIZE: usize = 100000;
+pub const MAX_HISTORY_SIZE: usize = 100_000;
 
 /// Entry in the command history
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,9 +41,15 @@ pub trait HistoryTracker {
     fn is_history_enabled(&self) -> bool;
     
     /// Enable history tracking
+    ///
+    /// # Errors
+    /// This method will return an error if the history state cannot be persisted
     fn enable_history(&mut self) -> anyhow::Result<()>;
     
     /// Disable history tracking
+    ///
+    /// # Errors
+    /// This method will return an error if the history state cannot be persisted
     fn disable_history(&mut self) -> anyhow::Result<()>;
 }
 

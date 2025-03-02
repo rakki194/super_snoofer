@@ -69,8 +69,8 @@ where
     let mut matrix = vec![vec![0; s2_len + 1]; s1_len + 1];
 
     // Initialize the first row and column
-    for i in 0..=s1_len {
-        matrix[i][0] = i;
+    for (i, row) in matrix.iter_mut().enumerate().take(s1_len + 1) {
+        row[0] = i;
     }
     for j in 0..=s2_len {
         matrix[0][j] = j;
@@ -79,11 +79,7 @@ where
     // Fill the matrix
     for i in 1..=s1_len {
         for j in 1..=s2_len {
-            let cost = if s1_chars[i - 1] == s2_chars[j - 1] {
-                0
-            } else {
-                1
-            };
+            let cost = usize::from(s1_chars[i - 1] != s2_chars[j - 1]);
 
             matrix[i][j] = std::cmp::min(
                 std::cmp::min(
@@ -136,7 +132,10 @@ where
         // Calculate similarity based on matches and length
         let total = a.len().max(b.len());
         if total > 0 {
-            f64::from(matches) / (total as f64)
+            // Use u32 as an intermediate type to avoid precision loss
+            let matches_f64 = f64::from(u32::try_from(matches).unwrap_or(u32::MAX));
+            let total_f64 = f64::from(u32::try_from(total).unwrap_or(u32::MAX));
+            matches_f64 / total_f64
         } else {
             0.0
         }
