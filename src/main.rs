@@ -42,10 +42,19 @@ fn main() -> Result<()> {
     cache.update()?;
 
     if let Some(suggestion) = cache.find_similar(typed_command) {
-        print!(
-            "Awoo! 🐺 Did you mean `{}`? *wags tail* (Y/n/c) ",
-            suggestion.bright_green()
-        );
+        // Check if the suggestion is a shell alias
+        if let Some(alias_target) = cache.get_alias_target(&suggestion) {
+            print!(
+                "Awoo! 🐺 Did you mean `{}` (alias for `{}`)? *wags tail* (Y/n/c) ",
+                suggestion.bright_green(),
+                alias_target.bright_blue()
+            );
+        } else {
+            print!(
+                "Awoo! 🐺 Did you mean `{}`? *wags tail* (Y/n/c) ",
+                suggestion.bright_green()
+            );
+        }
         std::io::stdout().flush()?;
 
         let mut response = String::new();

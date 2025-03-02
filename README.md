@@ -19,6 +19,7 @@ Running suggested command...
 - 💾 Persistent command cache
 - 🔒 Safe command execution through user's shell
 - ⚡ Parallel command matching using Rayon
+- 🔗 Shell alias detection and fuzzy matching for Bash, Zsh, and Fish
 
 ## 📦 Installation
 
@@ -297,3 +298,32 @@ If you encounter issues:
 1. Check the [Issues](https://github.com/yourusername/super_snoofer/issues) page
 2. Include relevant error messages and your environment details
 3. Describe the steps to reproduce the problem
+
+### Shell Aliases
+
+Super Snoofer now detects and includes shell aliases in its suggestions:
+
+- Automatically finds and loads aliases from:
+  - **Bash**: `.bashrc` and `.bash_aliases`
+  - **Zsh**: `.zshrc`, `.zsh_aliases`, and Oh-My-Zsh custom aliases
+  - **Fish**: `config.fish` and function-based aliases in `~/.config/fish/functions/`
+- Updates the alias cache every 24 hours
+- Shows both the alias name and the command it represents
+- Provides fuzzy matching for aliases just like regular commands
+
+Example with aliases:
+
+```bash
+# When you type a typo of an alias
+$ dokcer compose up
+Awoo! 🐺 Did you mean `docker` (alias for `podman`)? *wags tail* (Y/n/c) y
+Running suggested command...
+[command output follows...]
+```
+
+Aliases are treated as first-class commands in Super Snoofer, meaning:
+
+- You get suggestions for typos of aliases
+- The underlying command is shown in the suggestion
+- Aliases can be learned as corrections just like regular commands
+- Aliases are included in fuzzy matching searches

@@ -2,7 +2,7 @@
 name = "super_snoofer"
 version = "0.1.0"
 edition = "2024"
-authors = ["_ka_de"]
+authors = ["rakki194"]
 description = "A fuzzy command finder that suggests similar commands when a typo is made"
 license = "MIT"
 repository = "https://github.com/rakki194/super_snoofer"
@@ -23,6 +23,7 @@ once_cell = "1.20.3"
 rayon = "1.10.0"
 dirs = "6.0.0"
 log = "0.4.26"
+fancy-regex = "0.14.0"
 
 [dev-dependencies]
 tempfile = "3.17.1"
