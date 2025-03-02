@@ -306,7 +306,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 If you encounter issues:
 
-1. Check the [Issues](https://github.com/yourusername/super_snoofer/issues) page
+1. Check the [Issues](https://github.com/rakki194/super_snoofer/issues) page
 2. Include relevant error messages and your environment details
 3. Describe the steps to reproduce the problem
 
