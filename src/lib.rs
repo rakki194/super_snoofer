@@ -1,19 +1,21 @@
 #![warn(clippy::all, clippy::pedantic)]
 
+// Public API
 pub mod cache;
 pub mod command;
 pub mod display;
 pub mod history;
 pub mod shell;
 pub mod suggestion;
-pub mod tests;
 pub mod utils;
 
-// Re-export key structs and traits for easier access
+// Re-export commonly used types
 pub use cache::CommandCache;
-pub use command::CommandPatterns;
-pub use history::{CommandHistoryEntry, HistoryManager, HistoryTracker};
-pub use shell::aliases;
+pub use history::HistoryTracker;
 
-// Constants re-exported for backward compatibility
+// Re-export constants for backward compatibility
 pub use cache::{CACHE_FILE, SIMILARITY_THRESHOLD};
+
+// Tests
+#[cfg(test)]
+pub mod tests;

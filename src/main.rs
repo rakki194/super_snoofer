@@ -6,6 +6,8 @@ use std::{
     env,
     io::Write,
     process::{Command, exit},
+    fs::File,
+    path::PathBuf,
 };
 
 // Import modules for functionality
@@ -90,6 +92,46 @@ fn handle_history_tracking_commands(command: &str) -> Result<()> {
     }
 }
 
+/// Handle auto-completion commands
+fn handle_completion_commands(command: &str, args: &[String]) -> Result<()> {
+    match command {
+        "--enable-completion" => {
+            let mut cache = CommandCache::load()?;
+            cache.enable_completion()?;
+            println!("Auto-completion enabled! 🐺");
+            println!("To use auto-completion, add this to your ~/.zshrc:");
+            println!("source ~/.zsh_super_snoofer_completions");
+            exit(0);
+        }
+        "--disable-completion" => {
+            let mut cache = CommandCache::load()?;
+            cache.disable_completion()?;
+            println!("Auto-completion disabled! 🐺");
+            exit(0);
+        }
+        "--export-completions" => {
+            // Check if a path was provided
+            let completion_path = if args.len() >= 3 {
+                PathBuf::from(&args[2])
+            } else {
+                // Default path is current directory with a standard name
+                PathBuf::from("super_snoofer_completions.zsh")
+            };
+            
+            let cache = CommandCache::load()?;
+            let completions = cache.command_patterns.generate_all_completions();
+            
+            // Write completions to the specified file
+            let mut file = File::create(&completion_path)?;
+            file.write_all(completions.as_bytes())?;
+            
+            println!("Completions exported to {}! 🐺", completion_path.display());
+            exit(0);
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Handle shell integration commands
 fn handle_shell_integration(command: &str, args: &[String]) -> Result<()> {
     if command == "--add-alias" && args.len() >= 3 {
@@ -121,6 +163,89 @@ fn handle_suggestion_command(command: &str) -> Result<()> {
     }
 }
 
+/// Handle command recording for history tracking
+fn handle_record_correction(args: &[String]) -> Result<()> {
+    if args.len() >= 4 && args[1] == "--record-correction" {
+        let typo = &args[2];
+        let correction = &args[3];
+        
+        let mut cache = CommandCache::load()?;
+        
+        // Check if history is enabled before recording
+        if cache.is_history_enabled() {
+            // Record the correction
+            cache.record_correction(typo, correction);
+            cache.save()?;
+        }
+        
+        // Always exit quietly
+        exit(0);
+    }
+    
+    Ok(())
+}
+
+/// Handle command suggestions for real-time completion
+fn handle_suggest_completion(args: &[String]) -> Result<()> {
+    if args.len() >= 3 && args[1] == "--suggest-completion" {
+        let partial_cmd = args[2..].join(" ");
+        
+        // Load the cache
+        let cache = CommandCache::load()?;
+        
+        // Extract the base command (first word)
+        let base_cmd = if let Some(cmd) = partial_cmd.split_whitespace().next() {
+            cmd
+        } else {
+            // No command found, just return the original
+            println!("{}", partial_cmd);
+            exit(0);
+        };
+        
+        // Check if this is a known command
+        if cache.contains(base_cmd) {
+            // See if we have command patterns with arguments/flags that can be suggested
+            if let Some(suggestion) = cache.get_command_suggestion(&partial_cmd) {
+                println!("{}", suggestion);
+                exit(0);
+            }
+        }
+        
+        // Fallback to basic command correction if no specific suggestion
+        if let Some(corrected) = cache.fix_command_line(&partial_cmd) {
+            println!("{}", corrected);
+        } else {
+            // No suggestion found, return the original
+            println!("{}", partial_cmd);
+        }
+        
+        exit(0);
+    }
+    
+    Ok(())
+}
+
+/// Handle recording valid commands for learning
+fn handle_record_valid_command(args: &[String]) -> Result<()> {
+    if args.len() >= 3 && args[1] == "--record-valid-command" {
+        let command = &args[2];
+        
+        let mut cache = CommandCache::load()?;
+        
+        // Check if history is enabled before recording
+        if cache.is_history_enabled() {
+            // Record the valid command (this may need to be implemented in the cache)
+            cache.record_valid_command(command);
+            cache.save()?;
+        }
+        
+        // Always exit quietly
+        exit(0);
+    }
+    
+    Ok(())
+}
+
 /// Handle help display
 fn handle_help_command(command: &str) {
     if command == "--help" || command == "-h" {
@@ -129,19 +254,47 @@ fn handle_help_command(command: &str) {
         println!("  super_snoofer [OPTION]");
         println!("  super_snoofer [COMMAND] [OPTIONS]");
         println!("\nOptions:");
-        println!("  --help, -h             Show this help message");
-        println!("  --reset_cache          Clear the command cache");
-        println!("  --reset_memory         Clear the cache and learned corrections");
-        println!("  --history              Show command history");
-        println!("  --frequent-typos       Show most common typos");
-        println!("  --frequent-corrections Show most used corrections");
-        println!("  --clear-history        Clear command history");
-        println!("  --enable-history       Enable command history tracking");
-        println!("  --disable-history      Disable command history tracking");
-        println!("  --add-alias NAME [CMD] Add shell alias (default: super_snoofer)");
-        println!("  --suggest              Suggest personalized shell aliases");
+        println!("  --help, -h                           Show this help message");
+        println!("  --reset_cache                        Clear the command cache");
+        println!("  --reset_memory                       Clear the cache and learned corrections");
+        println!("  --history                            Show command history");
+        println!("  --frequent-typos                     Show most common typos");
+        println!("  --frequent-corrections               Show most used corrections");
+        println!("  --clear-history                      Clear command history");
+        println!("  --enable-history                     Enable command history tracking");
+        println!("  --disable-history                    Disable command history tracking");
+        println!("  --add-alias NAME [CMD]               Add shell alias (default: super_snoofer)");
+        println!("  --suggest                            Suggest personalized shell aliases");
+        println!("  --check-command CMD                  Check if a command has typos and output the corrected version");
+        println!("  --record-correction TYPO CORRECTION  Record a correction for history (quiet)");
+        println!("  --record-valid-command CMD           Record a valid command usage (quiet)");
+        println!("  --suggest-completion CMD             Get real-time command suggestions (for shell integration)");
+        println!("  --enable-completion                  Enable ZSH auto-completion for commands");
+        println!("  --disable-completion                 Disable ZSH auto-completion");
+        println!("  --export-completions [PATH]          Export completion script to a file");
         exit(0);
     }
+}
+
+/// Handle check command functionality
+fn handle_check_command(args: &[String]) -> Result<()> {
+    if args.len() >= 3 && args[1] == "--check-command" {
+        let command_line = args[2..].join(" ");
+        let cache = CommandCache::load()?;
+        
+        // Try to correct the command line
+        if let Some(corrected) = cache.fix_command_line(&command_line) {
+            // Just output the corrected command - no interactive prompts
+            println!("{}", corrected);
+            exit(0);
+        } else {
+            // If no correction is available, just echo back the original command
+            println!("{}", command_line);
+            exit(0);
+        }
+    }
+    
+    Ok(())
 }
 
 /// Process an unrecognized command and suggest corrections
@@ -212,9 +365,13 @@ fn process_correction_options(
             cache.record_correction(typed_command, correction);
             cache.save()?;
             
-            let status = Command::new("sh")
-                .arg("-c")
-                .arg(format!(
+            // Try to correct the entire command line, not just the first part
+            let full_command_line = if let Some(fixed_cmd_line) = cache.fix_command_line(command_line) {
+                fixed_cmd_line
+            } else {
+                // If we can't correct the entire command line, just use the corrected command
+                // with the original arguments
+                format!(
                     "{} {}",
                     correction,
                     command_line
@@ -223,7 +380,12 @@ fn process_correction_options(
                         .map(String::from)
                         .collect::<Vec<String>>()
                         .join(" ")
-                ))
+                )
+            };
+            
+            let status = Command::new("sh")
+                .arg("-c")
+                .arg(full_command_line)
                 .status()?;
             
             exit(status.code().unwrap_or(1));
@@ -355,10 +517,22 @@ fn main() -> Result<()> {
     if args.len() > 1 {
         let command = &args[1];
         
+        // Check for non-interactive commands early
+        if command == "--check-command" {
+            handle_check_command(&args)?;
+        } else if command == "--record-correction" {
+            handle_record_correction(&args)?;
+        } else if command == "--record-valid-command" {
+            handle_record_valid_command(&args)?;
+        } else if command == "--suggest-completion" {
+            handle_suggest_completion(&args)?;
+        }
+        
         // Try handling different types of commands
         handle_cache_commands(command)?;
         handle_history_commands(command)?;
         handle_history_tracking_commands(command)?;
+        handle_completion_commands(command, &args)?;
         handle_shell_integration(command, &args)?;
         handle_suggestion_command(command)?;
         handle_help_command(command);

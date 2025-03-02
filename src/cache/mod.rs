@@ -5,11 +5,13 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
     time::SystemTime,
+    io::Write,
+    process::Command,
 };
 use crate::{
     command::CommandPatterns,
     history::{CommandHistoryEntry, HistoryManager, HistoryTracker},
-    shell::aliases::{parse_shell_aliases},
+    shell::aliases::parse_shell_aliases,
     utils::{find_closest_match, get_path_commands},
 };
 
@@ -24,6 +26,9 @@ pub const CACHE_LIFETIME_SECS: u64 = 86400;
 
 /// Cache lifetime for aliases in seconds (24 hours)
 pub const ALIAS_CACHE_LIFETIME_SECS: u64 = 86400;
+
+/// ZSH completion file path
+pub const ZSH_COMPLETION_FILE: &str = "~/.zsh_super_snoofer_completions";
 
 /// Main cache structure for the Super Snoofer application
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,9 +59,17 @@ pub struct CommandCache {
     #[serde(default)]
     history_manager: HistoryManager,
     
-    /// Command patterns for well-known commands (not serialized)
-    #[serde(skip)]
-    command_patterns: CommandPatterns,
+    /// Command patterns for dynamic learning
+    #[serde(default)]
+    pub command_patterns: CommandPatterns,
+    
+    /// Last time completion files were updated
+    #[serde(default = "SystemTime::now")]
+    completion_update: SystemTime,
+    
+    /// Whether to enable auto-completion
+    #[serde(default)]
+    enable_completion: bool,
 }
 
 impl Default for CommandCache {
@@ -70,6 +83,8 @@ impl Default for CommandCache {
             alias_last_update: SystemTime::now(),
             history_manager: HistoryManager::default(),
             command_patterns: CommandPatterns::new(),
+            completion_update: SystemTime::now(),
+            enable_completion: false,
         }
     }
 }
@@ -138,9 +153,6 @@ impl CommandCache {
             // Set the cache path
             cache.cache_path = Some(path.to_path_buf());
             
-            // Initialize command patterns
-            cache.command_patterns = CommandPatterns::new();
-            
             // If the cache is too old, clear it
             if cache.should_clear_cache() {
                 cache.clear_cache();
@@ -149,6 +161,16 @@ impl CommandCache {
             // If alias cache is too old, update it
             if cache.should_update_aliases() {
                 cache.update_aliases();
+            }
+            
+            // Check if we need to update completions
+            if cache.should_update_completions() && cache.enable_completion {
+                let _ = cache.update_completion_files();
+            }
+            
+            // Check if we need to do a discovery scan
+            if cache.command_patterns.should_run_discovery() {
+                let _ = cache.run_discovery_scan();
             }
             
             cache
@@ -183,6 +205,15 @@ impl CommandCache {
     fn should_update_aliases(&self) -> bool {
         if let Ok(duration) = SystemTime::now().duration_since(self.alias_last_update) {
             return duration.as_secs() > ALIAS_CACHE_LIFETIME_SECS;
+        }
+        
+        false
+    }
+    
+    /// Check if completion files should be updated
+    fn should_update_completions(&self) -> bool {
+        if let Ok(duration) = SystemTime::now().duration_since(self.completion_update) {
+            return duration.as_secs() > 86400; // One day
         }
         
         false
@@ -275,6 +306,17 @@ impl CommandCache {
         // Second, check learned corrections - this should return the actual correction
         if let Some(correction) = self.learned_corrections.get(command) {
             return Some(correction.clone());
+        }
+        
+        // If command contains spaces, try to extract the base command
+        if command.contains(' ') {
+            if let Some(base_cmd) = command.split_whitespace().next() {
+                // Check if we have a learned correction for just the base command
+                if let Some(correction) = self.learned_corrections.get(base_cmd) {
+                    // Replace the base command in the original command
+                    return Some(command.replacen(base_cmd, correction, 1));
+                }
+            }
         }
         
         // Last resort: find the closest match using fuzzy matching
@@ -439,6 +481,251 @@ impl CommandCache {
         }
         
         Ok(false)
+    }
+    
+    /// Record a valid command usage
+    pub fn record_valid_command(&mut self, command: &str) {
+        // Only track if history is enabled
+        if !self.is_history_enabled() {
+            return;
+        }
+        
+        // Extract the base command (first word)
+        let base_command = command.split_whitespace().next().unwrap_or(command);
+        
+        // Add the command to our known commands set
+        self.insert(base_command);
+        
+        // Add to command patterns for learning
+        self.command_patterns.learn_from_command(command);
+        
+        // Optionally record successful command lines in history
+        self.history_manager.add_valid_command(command);
+        
+        // Update completion files if enabled and necessary
+        if self.enable_completion && self.should_update_completions() {
+            let _ = self.update_completion_files();
+        }
+    }
+    
+    /// Enable auto-completion
+    pub fn enable_completion(&mut self) -> Result<()> {
+        self.enable_completion = true;
+        // Generate initial completion files
+        self.update_completion_files()?;
+        self.save()?;
+        Ok(())
+    }
+    
+    /// Disable auto-completion
+    pub fn disable_completion(&mut self) -> Result<()> {
+        self.enable_completion = false;
+        self.save()?;
+        Ok(())
+    }
+    
+    /// Get a smart suggestion for a partial command
+    /// This provides intelligent completion for commands including arguments and flags
+    #[must_use]
+    pub fn get_command_suggestion(&self, partial_cmd: &str) -> Option<String> {
+        // Extract the base command (first word)
+        let base_cmd = partial_cmd.split_whitespace().next()?;
+        
+        // First check if we have a command pattern for this command
+        if let Some(pattern) = self.command_patterns.get(base_cmd) {
+            // Extract the current arguments from the partial command
+            let args: Vec<&str> = partial_cmd.split_whitespace().skip(1).collect();
+            
+            // If the command has subcommands and we're typing the first argument, suggest a subcommand
+            if !args.is_empty() && args.len() == 1 && args[0].len() >= 1 {
+                let current_arg = args[0];
+                
+                // Check if we're typing a flag
+                if current_arg.starts_with('-') {
+                    // Try to find a matching flag
+                    for flag in &pattern.flags {
+                        if flag.starts_with(current_arg) && flag != current_arg {
+                            // Found a flag completion
+                            let mut result = String::from(base_cmd);
+                            result.push(' ');
+                            result.push_str(flag);
+                            return Some(result);
+                        }
+                    }
+                } else {
+                    // Try to find a matching subcommand
+                    for arg in &pattern.args {
+                        if arg.starts_with(current_arg) && arg != current_arg {
+                            // Found a subcommand completion
+                            let mut result = String::from(base_cmd);
+                            result.push(' ');
+                            result.push_str(arg);
+                            return Some(result);
+                        }
+                    }
+                }
+            }
+            
+            // If we're after a known subcommand, suggest appropriate flags
+            if args.len() >= 2 {
+                let subcommand = args[0];
+                let current_arg = args[args.len() - 1];
+                
+                // Check if we're typing a flag for a known subcommand
+                if current_arg.starts_with('-') && pattern.args.contains(&subcommand.to_string()) {
+                    // Find a matching flag for this subcommand
+                    for flag in &pattern.flags {
+                        if flag.starts_with(current_arg) && flag != current_arg {
+                            // Found a flag completion for the subcommand
+                            let mut result = String::new();
+                            result.push_str(base_cmd);
+                            result.push(' ');
+                            result.push_str(subcommand);
+                            result.push(' ');
+                            
+                            // Add any intermediate args
+                            for i in 1..args.len()-1 {
+                                result.push_str(args[i]);
+                                result.push(' ');
+                            }
+                            
+                            result.push_str(flag);
+                            return Some(result);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If no specific pattern match, try to correct any typos
+        self.fix_command_line(partial_cmd)
+    }
+    
+    /// Update completion files
+    fn update_completion_files(&mut self) -> Result<()> {
+        // Generate ZSH completion script
+        let completions = self.command_patterns.generate_all_completions();
+        
+        // Expand the completion file path
+        let expanded_path = shellexpand::tilde(ZSH_COMPLETION_FILE).to_string();
+        let completion_path = PathBuf::from(expanded_path);
+        
+        // Create the directory if it doesn't exist
+        if let Some(parent) = completion_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        
+        // Write the completions to the file
+        let mut file = File::create(&completion_path)?;
+        file.write_all(completions.as_bytes())?;
+        
+        // Update timestamp
+        self.completion_update = SystemTime::now();
+        
+        Ok(())
+    }
+    
+    /// Run a discovery scan to find commands and possibly their arguments
+    fn run_discovery_scan(&mut self) -> Result<()> {
+        // This is a potentially expensive operation, so we only do it rarely
+        
+        // Scan basic commands
+        self.command_patterns.update_discovery_timestamp();
+        
+        // Try to get help output from some popular commands to extract arguments
+        self.discover_command_arguments("git", &["--help"])?;
+        self.discover_command_arguments("cargo", &["--help"])?;
+        self.discover_command_arguments("docker", &["--help"])?;
+        
+        // Save the updated data
+        self.save()?;
+        
+        Ok(())
+    }
+    
+    /// Discover arguments for a command by running it with help flags
+    fn discover_command_arguments(&mut self, command: &str, args: &[&str]) -> Result<()> {
+        // Skip if the command doesn't exist
+        if !self.commands.contains(command) {
+            return Ok(());
+        }
+        
+        // Run the command with the help flags
+        let output = match Command::new(command).args(args).output() {
+            Ok(output) => output,
+            Err(_) => return Ok(()), // Command failed, skip it
+        };
+        
+        // Process the output to extract possible arguments
+        if output.status.success() {
+            let output_text = String::from_utf8_lossy(&output.stdout);
+            
+            // Extract subcommands and flags - this is a simple heuristic
+            // In a real implementation, you'd want to parse the help output
+            // more carefully based on the specific command format
+            
+            for line in output_text.lines() {
+                let line = line.trim();
+                
+                // Try to identify command arguments (heuristic)
+                if line.starts_with('-') {
+                    // Looks like a flag
+                    if let Some(flag) = line.split_whitespace().next() {
+                        // Add to our patterns
+                        if let Some(pattern) = self.command_patterns.get(command) {
+                            // Create a mutable copy
+                            let mut pattern = pattern.clone();
+                            
+                            // Add the flag if not already present
+                            if !pattern.flags.contains(&flag.to_string()) {
+                                pattern.flags.push(flag.to_string());
+                            }
+                            
+                            // Update the pattern
+                            self.command_patterns.patterns.insert(command.to_string(), pattern);
+                        }
+                    }
+                } else if line.len() > 2 && !line.contains(' ') && !line.contains(':') {
+                    // Looks like a possible subcommand
+                    if let Some(pattern) = self.command_patterns.get(command) {
+                        // Create a mutable copy
+                        let mut pattern = pattern.clone();
+                        
+                        // Add the arg if not already present
+                        if !pattern.args.contains(&line.to_string()) {
+                            pattern.args.push(line.to_string());
+                        }
+                        
+                        // Update the pattern
+                        self.command_patterns.patterns.insert(command.to_string(), pattern);
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if auto-completion is enabled
+    #[must_use]
+    pub fn is_completion_enabled(&self) -> bool {
+        self.enable_completion
+    }
+    
+    /// Get completions for a command (used by ZSH integration)
+    #[must_use]
+    pub fn get_completions_for_command(&self, command: &str) -> Option<Vec<String>> {
+        // Check if the command is known
+        let pattern = self.command_patterns.get(command)?;
+        
+        // Return the list of arguments for completion
+        Some(pattern.args.clone())
+    }
+    
+    /// Generate ZSH completion script for a command
+    #[must_use]
+    pub fn generate_zsh_completion_for_command(&self, command: &str) -> Option<String> {
+        self.command_patterns.generate_zsh_completion(command)
     }
 }
 
