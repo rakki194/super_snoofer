@@ -1,20 +1,17 @@
-use crate::{
-    HistoryTracker,
-    shell::{add_to_shell_config, detect_shell_config},
-};
 use anyhow::Result;
 use colored::Colorize;
 use rand::Rng;
 use std::io::Write;
+use crate::{HistoryTracker, shell::{detect_shell_config, add_to_shell_config}};
 
 /// Generate a personalized alias suggestion based on command history
-///
+/// 
 /// # Returns
-///
+/// 
 /// A `Result` indicating success or failure
-///
+/// 
 /// # Errors
-///
+/// 
 /// This function will return an error if:
 /// - The command cache cannot be loaded
 /// - Shell configuration files cannot be detected
@@ -50,7 +47,9 @@ pub fn suggest_alias_command() -> Result<()> {
 
     // Get the correction for this typo
     let Some(correction) = cache.find_similar_with_frequency(selected_typo) else {
-        println!("🐺 Couldn't find a correction for '{selected_typo}'. This is unexpected!");
+        println!(
+            "🐺 Couldn't find a correction for '{selected_typo}'. This is unexpected!"
+        );
         return Ok(());
     };
 
@@ -71,7 +70,9 @@ pub fn suggest_alias_command() -> Result<()> {
 
     // Generate a personalized tip
     let tips = [
-        format!("You've mistyped '{selected_typo}' {count} times! Let's create an alias for that."),
+        format!(
+            "You've mistyped '{selected_typo}' {count} times! Let's create an alias for that."
+        ),
         format!(
             "Awoo! 🐺 I noticed you typed '{selected_typo}' when you meant '{correction}' {count} times!"
         ),
@@ -132,21 +133,20 @@ pub fn suggest_alias_command() -> Result<()> {
 /// # Returns
 ///
 /// A vector of suggested commands that are similar to the input command
-#[must_use]
-pub fn get_command_suggestions(command: &str, cache: &crate::CommandCache) -> Vec<String> {
+#[must_use] pub fn get_command_suggestions(command: &str, cache: &crate::CommandCache) -> Vec<String> {
     let mut suggestions = Vec::new();
-
+    
     // First check if we have a learned correction
     if let Some(correction) = cache.find_similar_with_frequency(command) {
         suggestions.push(correction);
     }
-
+    
     // Then look for aliases and similar commands
     if let Some(correction) = cache.get_closest_match(command, crate::cache::SIMILARITY_THRESHOLD) {
         if !suggestions.contains(&correction) {
             suggestions.push(correction);
         }
     }
-
+    
     suggestions
-}
+} 

@@ -1,6 +1,6 @@
-use crate::HistoryTracker;
 use anyhow::Result;
 use colored::Colorize;
+use crate::HistoryTracker;
 
 /// Default number of history entries to display
 pub const HISTORY_DISPLAY_LIMIT: usize = 20;
@@ -96,4 +96,4 @@ pub fn display_frequent_corrections() -> Result<()> {
     }
 
     Ok(())
-}
+} 

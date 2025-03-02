@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     time::SystemTime,
 };
+use serde::{Deserialize, Serialize};
 
 /// Maximum number of entries in history
 pub const MAX_HISTORY_SIZE: usize = 100_000;
@@ -16,8 +16,7 @@ pub struct CommandHistoryEntry {
 }
 
 /// Gets whether history tracking is enabled by default
-#[must_use]
-pub fn default_history_enabled() -> bool {
+#[must_use] pub fn default_history_enabled() -> bool {
     true
 }
 
@@ -25,28 +24,28 @@ pub fn default_history_enabled() -> bool {
 pub trait HistoryTracker {
     /// Record a correction in the history
     fn record_correction(&mut self, typo: &str, correction: &str);
-
+    
     /// Get frequent typos with their counts, limited to a specified number
     fn get_frequent_typos(&self, limit: usize) -> Vec<(String, usize)>;
-
+    
     /// Get frequent corrections with their counts, limited to a specified number
     fn get_frequent_corrections(&self, limit: usize) -> Vec<(String, usize)>;
-
+    
     /// Get recent command history entries, limited to a specified number
     fn get_command_history(&self, limit: usize) -> Vec<CommandHistoryEntry>;
-
+    
     /// Clear all history data
     fn clear_history(&mut self);
-
+    
     /// Check if history tracking is enabled
     fn is_history_enabled(&self) -> bool;
-
+    
     /// Enable history tracking
     ///
     /// # Errors
     /// This method will return an error if the history state cannot be persisted
     fn enable_history(&mut self) -> anyhow::Result<()>;
-
+    
     /// Disable history tracking
     ///
     /// # Errors
@@ -81,11 +80,10 @@ impl Default for HistoryManager {
 
 impl HistoryManager {
     /// Create a new history manager
-    #[must_use]
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
-
+    
     /// Add a valid command to the history
     /// This helps track what commands are used successfully
     pub fn add_valid_command(&mut self, command: &str) {
@@ -93,21 +91,18 @@ impl HistoryManager {
         if !self.history_enabled {
             return;
         }
-
+        
         // Extract the base command (first word)
         let base_command = command.split_whitespace().next().unwrap_or(command);
-
+        
         // For valid commands, we record them in the correction frequency
         // This helps improve suggestions based on commonly used commands
-        *self
-            .correction_frequency
-            .entry(base_command.to_string())
-            .or_insert(0) += 1;
-
+        *self.correction_frequency.entry(base_command.to_string()).or_insert(0) += 1;
+        
         // Optionally, we could record the full command and some other metadata
         // But for now, just updating frequency is sufficient
     }
-
+    
     /// Find a similar command with frequency bias
     pub fn find_similar_with_frequency(
         &self,
@@ -120,7 +115,7 @@ impl HistoryManager {
             // return it along with the frequency data
             return Some(correction);
         }
-
+        
         None
     }
 }
@@ -131,74 +126,70 @@ impl HistoryTracker for HistoryManager {
         if !self.history_enabled {
             return;
         }
-
+        
         // Update frequency counters
         *self.typo_frequency.entry(typo.to_string()).or_insert(0) += 1;
-        *self
-            .correction_frequency
-            .entry(correction.to_string())
-            .or_insert(0) += 1;
-
+        *self.correction_frequency.entry(correction.to_string()).or_insert(0) += 1;
+        
         // Add to history
         self.command_history.push_front(CommandHistoryEntry {
             typo: typo.to_string(),
             correction: correction.to_string(),
             timestamp: SystemTime::now(),
         });
-
+        
         // Ensure we don't exceed the maximum history size
         if self.command_history.len() > MAX_HISTORY_SIZE {
             self.command_history.pop_back();
         }
     }
-
+    
     fn get_frequent_typos(&self, limit: usize) -> Vec<(String, usize)> {
-        let mut typos: Vec<(String, usize)> = self
-            .typo_frequency
-            .iter()
+        let mut typos: Vec<(String, usize)> = self.typo_frequency.iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-
+        
         typos.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by frequency in descending order
         typos.truncate(limit); // Limit to the requested number
-
+        
         typos
     }
-
+    
     fn get_frequent_corrections(&self, limit: usize) -> Vec<(String, usize)> {
-        let mut corrections: Vec<(String, usize)> = self
-            .correction_frequency
-            .iter()
+        let mut corrections: Vec<(String, usize)> = self.correction_frequency.iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-
+        
         corrections.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by frequency in descending order
         corrections.truncate(limit); // Limit to the requested number
-
+        
         corrections
     }
-
+    
     fn get_command_history(&self, limit: usize) -> Vec<CommandHistoryEntry> {
-        self.command_history.iter().take(limit).cloned().collect()
+        self.command_history.iter()
+            .take(limit)
+            .cloned()
+            .collect()
     }
-
+    
     fn clear_history(&mut self) {
         self.command_history.clear();
         self.typo_frequency.clear();
         self.correction_frequency.clear();
     }
-
+    
     fn is_history_enabled(&self) -> bool {
         self.history_enabled
     }
-
+    
     fn enable_history(&mut self) -> anyhow::Result<()> {
         self.history_enabled = true;
         Ok(())
     }
-
+    
     fn disable_history(&mut self) -> anyhow::Result<()> {
         self.history_enabled = false;
         Ok(())
     }
-}
+} 
