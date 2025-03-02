@@ -311,17 +311,17 @@ pub mod tests {
             
             // Save the cache to disk
             cache.save()?;
-            println!("Cache saved with correction: {:?} -> {:?}", typed_command, correct_command);
+            println!("Cache saved with correction: {typed_command:?} -> {correct_command:?}");
         }
 
         // Load a fresh cache from disk and verify
         {
-            println!("Loading fresh cache from: {:?}", cache_path);
+            println!("Loading fresh cache from: {cache_path:?}");
             let cache = CommandCache::load_from_path(&cache_path)?;
             
             // Check the direct correction in the fresh load
             let direct_correction = cache.get_direct_correction(typed_command);
-            println!("Direct correction after reload: {:?}", direct_correction);
+            println!("Direct correction after reload: {direct_correction:?}");
             assert!(direct_correction.is_some(), "Direct correction should be found after reload");
             assert_eq!(
                 direct_correction,
@@ -332,7 +332,7 @@ pub mod tests {
             // Test find_similar too - the actual behavior appears to return the typed command when there's a correction
             // This is likely because the actual implementation returns the original command when it's in the corrections
             let found_correction = cache.find_similar(typed_command);
-            println!("Find_similar result: {:?}", found_correction);
+            println!("Find_similar result: {found_correction:?}");
             
             // If behavior is different than expected, this indicates the logic has changed
             // Either behavior could be correct depending on the implementation intent
@@ -449,8 +449,7 @@ pub mod tests {
             // Find git entry and verify count
             let git_count = typos.iter()
                 .find(|(typo, _)| typo == "gti")
-                .map(|(_, count)| *count)
-                .unwrap_or(0);
+                .map_or(0, |(_, count)| *count);
             
             assert_eq!(git_count, 2, "Expected 'gti' to appear twice in typos");
         }
@@ -923,7 +922,7 @@ pub mod tests {
         let fixed = crate::command::fix_command_line("git status", find_similar, &patterns);
         // The implementation might either return the original string or None when no correction is needed
         assert!(
-            fixed == Some("git status".to_string()) || fixed == None,
+            fixed == Some("git status".to_string()) || fixed.is_none(),
             "Should either return original or None when no correction needed"
         );
         

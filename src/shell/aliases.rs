@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 
 /// Parse shell aliases from various shell config files
-pub fn parse_shell_aliases() -> HashMap<String, String> {
+#[must_use] pub fn parse_shell_aliases() -> HashMap<String, String> {
     let mut aliases = HashMap::new();
 
     // Try to parse aliases from different shell config files
@@ -22,7 +22,7 @@ pub fn parse_shell_aliases() -> HashMap<String, String> {
     aliases
 }
 
-/// Parse Bash aliases from .bashrc and .bash_aliases
+/// Parse Bash aliases from .bashrc and .`bash_aliases`
 fn parse_bash_aliases() -> Option<HashMap<String, String>> {
     let home = dirs::home_dir()?;
     let mut aliases = HashMap::new();
@@ -175,7 +175,7 @@ fn parse_fish_function_alias(
     function_name: &str,
     aliases: &mut HashMap<String, String>,
 ) {
-    if let Ok(re) = Regex::new(r#"(?:command|exec)\s+([^\s;]+)"#) {
+    if let Ok(re) = Regex::new(r"(?:command|exec)\s+([^\s;]+)") {
         // Try to find command references in the function
         let captures_iter = re.captures_iter(content);
 

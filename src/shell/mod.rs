@@ -61,47 +61,47 @@ pub fn detect_shell_config(
                     .join("Microsoft.PowerShell_profile.ps1")
             };
             
-            let alias_line = format!("Set-Alias -Name {} -Value {}", alias_name, correction);
+            let alias_line = format!("Set-Alias -Name {alias_name} -Value {correction}");
             Ok(("PowerShell", profile_path, alias_line))
         },
         (_, _, true) => {
             // Nushell
             let config_path = home_dir.join(".config").join("nushell").join("config.nu");
-            let alias_line = format!("alias {} = {}", alias_name, correction);
+            let alias_line = format!("alias {alias_name} = {correction}");
             Ok(("Nushell", config_path, alias_line))
         },
         ("fish", _, _) => {
             // Fish shell
             let config_path = home_dir.join(".config").join("fish").join("config.fish");
-            let alias_line = format!("alias {} '{}'", alias_name, correction);
+            let alias_line = format!("alias {alias_name} '{correction}'");
             Ok(("Fish", config_path, alias_line))
         },
         ("zsh", _, _) => {
             // Zsh shell
             let config_path = home_dir.join(".zshrc");
-            let alias_line = format!("alias {}='{}'", alias_name, correction);
+            let alias_line = format!("alias {alias_name}='{correction}'");
             Ok(("Zsh", config_path, alias_line))
         },
         ("bash", _, _) => {
             // Bash shell
             let config_path = home_dir.join(".bashrc");
-            let alias_line = format!("alias {}='{}'", alias_name, correction);
+            let alias_line = format!("alias {alias_name}='{correction}'");
             Ok(("Bash", config_path, alias_line))
         },
         ("ksh", _, _) => {
             // Korn shell
             let config_path = home_dir.join(".kshrc");
-            let alias_line = format!("alias {}='{}'", alias_name, correction);
+            let alias_line = format!("alias {alias_name}='{correction}'");
             Ok(("Korn shell", config_path, alias_line))
         },
-        ("csh", _, _) | ("tcsh", _, _) => {
+        ("csh" | "tcsh", _, _) => {
             // C shell or TCSH
             let config_path = if shell_executable == "tcsh" {
                 home_dir.join(".tcshrc")
             } else {
                 home_dir.join(".cshrc")
             };
-            let alias_line = format!("alias {} '{}'", alias_name, correction);
+            let alias_line = format!("alias {alias_name} '{correction}'");
             Ok(("C shell", config_path, alias_line))
         },
         _ if cfg!(windows) && !is_powershell => {
@@ -110,13 +110,13 @@ pub fn detect_shell_config(
                 std::env::var("USERPROFILE").unwrap_or_else(|_| String::from("C:\\Users\\Default")),
             )
             .join("doskey.bat");
-            let alias_line = format!("doskey {}={}", alias_name, correction);
+            let alias_line = format!("doskey {alias_name}={correction}");
             Ok(("Windows Command Prompt", config_path, alias_line))
         },
         _ => {
             // Default to Bash for unknown shells
             let config_path = home_dir.join(".bashrc");
-            let alias_line = format!("alias {}='{}'", alias_name, correction);
+            let alias_line = format!("alias {alias_name}='{correction}'");
             Ok(("Bash", config_path, alias_line))
         }
     }
@@ -134,7 +134,7 @@ pub fn add_to_shell_config(shell_type: &str, config_path: &Path, alias_line: &st
     // Append the alias to the config file
     let mut config = if config_path.exists() {
         std::fs::OpenOptions::new()
-            .write(true)
+            
             .append(true)
             .open(config_path)?
     } else {
@@ -151,7 +151,7 @@ pub fn add_to_shell_config(shell_type: &str, config_path: &Path, alias_line: &st
     
     // Add a comment and the alias
     writeln!(config, "\n# Added by Super Snoofer")?;
-    writeln!(config, "{}", alias_line)?;
+    writeln!(config, "{alias_line}")?;
     
     // Generate appropriate reload command based on shell
     let reload_cmd = match shell_type {
@@ -169,8 +169,7 @@ pub fn add_to_shell_config(shell_type: &str, config_path: &Path, alias_line: &st
     println!(
         "{}",
         format!(
-            "Added alias to your {} configuration! 🐺 Please run '{}' to use it.",
-            shell_type, reload_cmd
+            "Added alias to your {shell_type} configuration! 🐺 Please run '{reload_cmd}' to use it."
         )
         .bright_green()
     );

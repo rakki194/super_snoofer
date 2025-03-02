@@ -75,7 +75,7 @@ impl Default for CommandCache {
 }
 
 impl CommandCache {
-    /// Create a new CommandCache instance
+    /// Create a new `CommandCache` instance
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -90,7 +90,7 @@ impl CommandCache {
             let cache_path = if dir.ends_with(".cache") {
                 dir.join(CACHE_FILE)
             } else {
-                dir.join(format!(".{}", CACHE_FILE))
+                dir.join(format!(".{CACHE_FILE}"))
             };
             
             return Self::load_from_path(&cache_path);
@@ -173,7 +173,7 @@ impl CommandCache {
     }
     
     /// Check if the cache has a correction for the given typo
-    pub fn has_correction(&self, typo: &str) -> bool {
+    #[must_use] pub fn has_correction(&self, typo: &str) -> bool {
         self.learned_corrections.contains_key(typo)
     }
     
@@ -212,7 +212,7 @@ impl CommandCache {
     }
     
     /// Find a similar command for a given command
-    pub fn find_similar(&self, command: &str) -> Option<String> {
+    #[must_use] pub fn find_similar(&self, command: &str) -> Option<String> {
         // First, check if we have this exact command
         if self.commands.contains(command) || self.shell_aliases.contains_key(command) {
             return Some(command.to_string());
@@ -277,7 +277,7 @@ impl CommandCache {
         let command_refs: Vec<&String> = all_commands.iter().collect();
         
         // Find the closest match
-        find_closest_match(command, &command_refs, threshold).map(|s| s.to_string())
+        find_closest_match(command, &command_refs, threshold).map(|s| (*s).to_string())
     }
     
     /// Get the target command for an alias
@@ -287,7 +287,7 @@ impl CommandCache {
     }
     
     /// Find a similar command with frequency bias
-    pub fn find_similar_with_frequency(&self, command: &str) -> Option<String> {
+    #[must_use] pub fn find_similar_with_frequency(&self, command: &str) -> Option<String> {
         // First, check for exact match
         if self.commands.contains(command) || self.shell_aliases.contains_key(command) {
             return Some(command.to_string());
@@ -303,7 +303,7 @@ impl CommandCache {
     }
     
     /// Fix a command line by correcting typos in command, arguments, and flags
-    pub fn fix_command_line(&self, command_line: &str) -> Option<String> {
+    #[must_use] pub fn fix_command_line(&self, command_line: &str) -> Option<String> {
         crate::command::fix_command_line(
             command_line,
             |cmd| self.find_similar(cmd),
@@ -317,7 +317,7 @@ impl CommandCache {
     }
     
     /// Get a reference to the history manager
-    pub fn history_manager(&self) -> &HistoryManager {
+    #[must_use] pub fn history_manager(&self) -> &HistoryManager {
         &self.history_manager
     }
     
@@ -357,7 +357,7 @@ impl CommandCache {
 // Implement HistoryTracker to delegate to the history manager
 impl HistoryTracker for CommandCache {
     fn record_correction(&mut self, typo: &str, correction: &str) {
-        self.history_manager.record_correction(typo, correction)
+        self.history_manager.record_correction(typo, correction);
     }
     
     fn get_frequent_typos(&self, limit: usize) -> Vec<(String, usize)> {
@@ -373,7 +373,7 @@ impl HistoryTracker for CommandCache {
     }
     
     fn clear_history(&mut self) {
-        self.history_manager.clear_history()
+        self.history_manager.clear_history();
     }
     
     fn is_history_enabled(&self) -> bool {

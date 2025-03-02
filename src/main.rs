@@ -106,7 +106,7 @@ fn main() -> Result<()> {
             .map(|(_, count)| count)
         {
             if count > 0 {
-                format!(" (used {} times)", count)
+                format!(" (used {count} times)")
             } else {
                 String::new()
             }
@@ -161,7 +161,7 @@ fn main() -> Result<()> {
 
                 let base_correction = correction.split_whitespace().next().unwrap_or(correction);
                 if !cache.contains(base_correction) {
-                    println!("Warning: '{}' is not a known command.", base_correction);
+                    println!("Warning: '{base_correction}' is not a known command.");
 
                     print!("Continue anyway? (y/N) ");
                     std::io::stdout().flush()?;
@@ -186,8 +186,7 @@ fn main() -> Result<()> {
                 cache.learn_correction(base_typed, base_correction)?;
 
                 println!(
-                    "Got it! 🐺 I'll remember that '{}' means '{}'",
-                    base_typed, base_correction
+                    "Got it! 🐺 I'll remember that '{base_typed}' means '{base_correction}'"
                 );
 
                 let status = Command::new("sh").arg("-c").arg(correction).status()?;
@@ -195,7 +194,7 @@ fn main() -> Result<()> {
                 exit(status.code().unwrap_or(1));
             }
             _ => {
-                println!("Command '{}' not found! 🐺", typed_command);
+                println!("Command '{typed_command}' not found! 🐺");
                 exit(127); // Standard "command not found" exit code
             }
         }
@@ -209,7 +208,7 @@ fn main() -> Result<()> {
             .map(|(_, count)| count)
         {
             if count > 0 {
-                format!(" (used {} times)", count)
+                format!(" (used {count} times)")
             } else {
                 String::new()
             }
@@ -275,7 +274,7 @@ fn main() -> Result<()> {
                 }
 
                 if !cache.contains(correction) {
-                    println!("Warning: '{}' is not a known command.", correction);
+                    println!("Warning: '{correction}' is not a known command.");
 
                     print!("Continue anyway? (y/N) ");
                     std::io::stdout().flush()?;
@@ -294,8 +293,7 @@ fn main() -> Result<()> {
 
                 cache.learn_correction(typed_command, correction)?;
                 println!(
-                    "Got it! 🐺 I'll remember that '{}' means '{}'",
-                    typed_command, correction
+                    "Got it! 🐺 I'll remember that '{typed_command}' means '{correction}'"
                 );
 
                 let status = Command::new("sh")
@@ -315,12 +313,12 @@ fn main() -> Result<()> {
                 exit(status.code().unwrap_or(1));
             }
             _ => {
-                println!("Command '{}' not found! 🐺", typed_command);
+                println!("Command '{typed_command}' not found! 🐺");
                 exit(127); // Standard "command not found" exit code
             }
         }
     } else {
-        println!("Command '{}' not found! 🐺", typed_command);
+        println!("Command '{typed_command}' not found! 🐺");
         exit(127); // Standard "command not found" exit code
     }
 }

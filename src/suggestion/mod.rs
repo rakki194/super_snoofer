@@ -39,8 +39,7 @@ pub fn suggest_alias_command() -> Result<()> {
             correction_for_typo
         } else {
             println!(
-                "🐺 Couldn't find a correction for '{}'. This is unexpected!",
-                selected_typo
+                "🐺 Couldn't find a correction for '{selected_typo}'. This is unexpected!"
             );
             return Ok(());
         };
@@ -63,24 +62,19 @@ pub fn suggest_alias_command() -> Result<()> {
     // Generate a personalized tip
     let tips = [
         format!(
-            "You've mistyped '{}' {} times! Let's create an alias for that.",
-            selected_typo, count
+            "You've mistyped '{selected_typo}' {count} times! Let's create an alias for that."
         ),
         format!(
-            "Awoo! 🐺 I noticed you typed '{}' when you meant '{}' {} times!",
-            selected_typo, correction, count
+            "Awoo! 🐺 I noticed you typed '{selected_typo}' when you meant '{correction}' {count} times!"
         ),
         format!(
-            "Good Boy Tip: Create an alias for '{}' to avoid typing '{}' again! You've done it {} times!",
-            correction, selected_typo, count
+            "Good Boy Tip: Create an alias for '{correction}' to avoid typing '{selected_typo}' again! You've done it {count} times!"
         ),
         format!(
-            "*friendly growl* 🐺 '{}' is one of your most common typos. Let me help with that!",
-            selected_typo
+            "*friendly growl* 🐺 '{selected_typo}' is one of your most common typos. Let me help with that!"
         ),
         format!(
-            "You might benefit from an alias for '{}' since you've typed '{}' {} times!",
-            correction, selected_typo, count
+            "You might benefit from an alias for '{correction}' since you've typed '{selected_typo}' {count} times!"
         ),
     ];
 
@@ -103,8 +97,7 @@ pub fn suggest_alias_command() -> Result<()> {
 
     // Ask if user wants to automatically add the alias
     print!(
-        "\nWould you like me to add this alias to your {} shell configuration? (y/N) ",
-        shell_type
+        "\nWould you like me to add this alias to your {shell_type} shell configuration? (y/N) "
     );
     std::io::stdout().flush()?;
 

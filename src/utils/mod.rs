@@ -49,7 +49,7 @@ where
 }
 
 /// Calculate Levenshtein distance between two strings
-pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+#[must_use] pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let s1_len = s1.chars().count();
     let s2_len = s2.chars().count();
 
@@ -100,7 +100,7 @@ pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
 }
 
 /// Calculate similarity between two strings
-pub fn calculate_similarity(a: &str, b: &str) -> f64 {
+#[must_use] pub fn calculate_similarity(a: &str, b: &str) -> f64 {
     // Handle case insensitivity by converting to lowercase
     let a_lower = a.to_lowercase();
     let b_lower = b.to_lowercase();
@@ -136,7 +136,7 @@ pub fn calculate_similarity(a: &str, b: &str) -> f64 {
         // Calculate similarity based on matches and length
         let total = a.len().max(b.len());
         if total > 0 {
-            (matches as f64) / (total as f64)
+            f64::from(matches) / (total as f64)
         } else {
             0.0
         }
@@ -155,7 +155,7 @@ pub fn calculate_similarity(a: &str, b: &str) -> f64 {
 /// # Returns
 ///
 /// `true` if the file is executable by the current user, `false` otherwise
-pub fn is_executable(path: &Path) -> bool {
+#[must_use] pub fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         // Follow symlinks when checking permissions
@@ -299,9 +299,9 @@ pub fn get_path_commands() -> HashSet<String> {
 
 /// Remove trailing flags from an argument
 /// e.g. "file.txt:10" -> ("file.txt", ":10")
-pub fn remove_trailing_flags(arg: &str) -> (&str, String) {
+#[must_use] pub fn remove_trailing_flags(arg: &str) -> (&str, String) {
     // Handle flags that start after the argument
-    if let Some(pos) = arg.find(|c| c == ':' || c == '=' || c == '@') {
+    if let Some(pos) = arg.find([':', '=', '@']) {
         let (base, flag) = arg.split_at(pos);
         return (base, flag.to_string());
     }

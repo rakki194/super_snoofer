@@ -16,7 +16,7 @@ pub struct CommandHistoryEntry {
 }
 
 /// Gets whether history tracking is enabled by default
-pub fn default_history_enabled() -> bool {
+#[must_use] pub fn default_history_enabled() -> bool {
     true
 }
 
@@ -74,7 +74,7 @@ impl Default for HistoryManager {
 
 impl HistoryManager {
     /// Create a new history manager
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self::default()
     }
     

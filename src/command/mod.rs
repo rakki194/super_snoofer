@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use strsim::levenshtein;
-use crate::utils::{calculate_similarity, remove_trailing_flags};
-use once_cell::sync::Lazy;
+use crate::utils::remove_trailing_flags;
 use fancy_regex::Regex;
 
 /// Common commands and their arguments/flags for better correction
@@ -20,13 +18,13 @@ pub struct CommandPatterns {
 }
 
 /// Regular expression for extracting command and arguments
-pub static COMMAND_REGEX: Lazy<Regex> = Lazy::new(|| {
+pub static COMMAND_REGEX: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r"^(?P<cmd>\S+)(?:\s+(?P<args>.+))?$").unwrap()
 });
 
 impl CommandPatterns {
-    /// Create a new CommandPatterns instance with predefined common commands
-    pub fn new() -> Self {
+    /// Create a new `CommandPatterns` instance with predefined common commands
+    #[must_use] pub fn new() -> Self {
         let mut patterns = HashMap::new();
         
         // Git commands
@@ -124,22 +122,22 @@ impl CommandPatterns {
     }
     
     /// Get a command pattern by command name
-    pub fn get(&self, command: &str) -> Option<&CommandPattern> {
+    #[must_use] pub fn get(&self, command: &str) -> Option<&CommandPattern> {
         self.patterns.get(command)
     }
     
     /// Get arguments for a specific command
-    pub fn get_args_for_command(&self, command: &str) -> Option<&Vec<String>> {
+    #[must_use] pub fn get_args_for_command(&self, command: &str) -> Option<&Vec<String>> {
         self.get(command).map(|pattern| &pattern.args)
     }
     
     /// Check if a command is a well-known command
-    pub fn is_known_command(&self, command: &str) -> bool {
+    #[must_use] pub fn is_known_command(&self, command: &str) -> bool {
         self.patterns.contains_key(command)
     }
     
     /// Find a similar argument for a command
-    pub fn find_similar_arg(command: &str, arg: &str, command_patterns: &CommandPatterns) -> Option<String> {
+    #[must_use] pub fn find_similar_arg(command: &str, arg: &str, command_patterns: &CommandPatterns) -> Option<String> {
         // For common git subcommands, be more lenient with the threshold
         if command == "git" && arg.starts_with("sta") && arg.len() > 3 {
             // Direct handling of common typos for "status"
@@ -179,20 +177,20 @@ impl CommandPatterns {
         }
         
         if best_similarity >= threshold {
-            return best_match.map(|s| s.to_string());
+            return best_match.map(std::string::ToString::to_string);
         }
         
         None
     }
     
     /// Find a similar flag for a known command
-    pub fn find_similar_flag(&self, command: &str, flag: &str, threshold: f64) -> Option<String> {
+    #[must_use] pub fn find_similar_flag(&self, command: &str, flag: &str, threshold: f64) -> Option<String> {
         if let Some(pattern) = self.patterns.get(command) {
             // Find the closest matching flag
             let flag_refs: Vec<&String> = pattern.flags.iter().collect();
             let closest = crate::utils::find_closest_match(flag, &flag_refs, threshold)?;
             
-            return Some(closest.to_string());
+            return Some((*closest).to_string());
         }
         None
     }
@@ -245,7 +243,7 @@ pub fn fix_command_line(
                 corrected_args.push(if flags.is_empty() {
                     corrected_arg
                 } else {
-                    format!("{}{}", corrected_arg, flags)
+                    format!("{corrected_arg}{flags}")
                 });
                 continue;
             }
