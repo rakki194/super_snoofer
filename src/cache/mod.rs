@@ -533,23 +533,6 @@ impl CommandCache {
         }
     }
 
-    /// Record a failed command
-    pub fn record_failed_command(&mut self, command: &str) {
-        // Only track if history is enabled
-        if !self.is_history_enabled() {
-            return;
-        }
-
-        // Extract the base command (first word)
-        let base_command = command.split_whitespace().next().unwrap_or(command);
-
-        // Add the command to our known commands set
-        self.insert(base_command);
-
-        // Track failed command in history
-        self.history_manager.add_failed_command(command);
-    }
-
     /// Enable auto-completion
     pub fn enable_completion(&mut self) -> Result<()> {
         self.enable_completion = true;
@@ -1472,39 +1455,11 @@ pub fn get_frequent_commands_for_prefix(prefix: &str) -> Vec<String> {
 
     // Get the history manager
     let history_manager = cache.history_manager();
-    
-    // Get all commands from history with success information
-    let history_entries = history_manager.get_command_history(1000);
-    
-    // Build a set of commands that have succeeded at least once
-    let mut successful_commands = HashSet::new();
-    
-    for entry in &history_entries {
-        if entry.success {
-            let base_command = entry.correction.split_whitespace().next()
-                .unwrap_or(&entry.correction)
-                .to_string();
-            successful_commands.insert(base_command);
-            successful_commands.insert(entry.correction.clone());
-        }
-    }
 
-    // Add all successful commands directly to our commands list
-    for cmd in &successful_commands {
-        if !commands.contains(cmd) {
-            commands.push(cmd.clone());
-        }
-    }
-
-    // Also add frequently used commands from history, but only those that succeeded at least once
+    // Add frequently used commands from history
     let frequent_commands: Vec<String> = history_manager
         .get_frequent_corrections(100)
         .into_iter()
-        .filter(|(cmd, _)| {
-            // If it's a multi-word command, check both the base command and full command
-            let base_cmd = cmd.split_whitespace().next().unwrap_or(cmd).to_string();
-            successful_commands.contains(&base_cmd) || successful_commands.contains(cmd)
-        })
         .map(|(cmd, _)| cmd)
         .collect();
 
@@ -1528,10 +1483,6 @@ pub fn get_frequent_commands_for_prefix(prefix: &str) -> Vec<String> {
 /// Generate full command completion suggestions based on command history
 /// This is exported for test access
 pub fn generate_full_completion(cmd: &str) -> Vec<String> {
-    use std::path::Path;
-    use std::fs;
-    use shellexpand;
-    
     // Load the command cache
     let cache = CommandCache::load().unwrap_or_default();
 
@@ -1562,225 +1513,6 @@ pub fn generate_full_completion(cmd: &str) -> Vec<String> {
             "ssh".to_string(),
             "curl".to_string(),
         ];
-    }
-    
-    // Check if the user is typing a path
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
-    if parts.len() > 1 {
-        let last_part = parts[parts.len() - 1];
-        
-        // Check if it's a path or a partial file name
-        // This checks for explicit paths (/,~,./,../) and also for any partial file name after a command
-        // or after a flag that expects a path (like --path)
-        let is_path = last_part.starts_with('/') || 
-                      last_part.starts_with('~') || 
-                      last_part.starts_with("./") || 
-                      last_part.starts_with("../") ||
-                      last_part == "." || 
-                      last_part == ".." ||
-                      (parts.len() >= 2 && ["cd", "vim", "nano", "less", "more", "cp", "mv", "rm", "grep", "find", "touch", "chmod", "chown", "cat"]
-                          .contains(&parts[0])) ||
-                      (parts.len() >= 3 && parts[parts.len() - 2].starts_with("--") && 
-                       ["--path", "--file", "--dir", "--directory", "--output", "--input", "-o", "-i", "-f", "-d"]
-                          .contains(&parts[parts.len() - 2])) ||
-                      // Specific cargo command handling
-                      (parts.len() >= 3 && parts[0] == "cargo" && 
-                          (parts.contains(&"--path") || // For cargo install --path .
-                           parts.contains(&"--manifest-path") || // For cargo build --manifest-path path/to/Cargo.toml
-                           (parts[1] == "run" && parts.len() >= 3) || // For cargo run path/to/file.rs
-                           (parts[1] == "build" && parts.len() >= 3) || // For cargo build path/to/directory
-                           (parts[1] == "install" && parts.len() >= 3) || // For cargo install --path .
-                           (parts[1] == "test" && parts.len() >= 3))); // For cargo test path/to/test_file.rs
-        
-        if is_path {
-            // Handle path completion
-            let mut completions = Vec::new();
-            
-            // Determine search directory and prefix
-            let (search_dir, prefix, path_for_parent) = if last_part.starts_with('/') || 
-                                                         last_part.starts_with('~') || 
-                                                         last_part.starts_with("./") || 
-                                                         last_part.starts_with("../") ||
-                                                         last_part == "." || 
-                                                         last_part == ".." {
-                // Expand any ~ in the path
-                let expanded_path = shellexpand::tilde(last_part).to_string();
-                let path = Path::new(&expanded_path);
-                
-                if path.is_dir() {
-                    // If it's an existing directory, list its contents
-                    (path.to_path_buf(), "".to_string(), Some(path.to_path_buf()))
-                } else {
-                    // If it's not a directory, get the parent directory and the file name prefix
-                    let parent = path.parent().unwrap_or(Path::new("."));
-                    let file_name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                    (parent.to_path_buf(), file_name, Some(path.to_path_buf()))
-                }
-            } else {
-                // For cases like "cat test_" with no path separators, search in current dir with prefix
-                (PathBuf::from("."), last_part.to_string(), None)
-            };
-            
-            // Try to read the directory and get completions
-            if let Ok(entries) = fs::read_dir(&search_dir) {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        
-                        // Only include entries that match the prefix
-                        if name.starts_with(&prefix) {
-                            // Construct the full path for the completion
-                            let mut path_buf = search_dir.clone();
-                            path_buf.push(&name);
-                            
-                            // Add a slash to directories
-                            let mut completion = if path_buf.is_dir() {
-                                // If this is a directory, add a trailing slash
-                                format!("{}/", name)
-                            } else {
-                                name
-                            };
-                            
-                            // Replace the last part with our completion
-                            let mut cmd_parts = parts.clone();
-                            
-                            // Handle different prefix scenarios
-                            if let Some(path) = &path_for_parent {
-                                if last_part.starts_with('/') || 
-                                   last_part.starts_with('~') || 
-                                   last_part.starts_with("./") || 
-                                   last_part.starts_with("../") {
-                                    // If we're completing from the parent directory with an explicit path
-                                    if !prefix.is_empty() {
-                                        let parent_path = path.parent().unwrap_or(Path::new(".")).to_string_lossy().to_string();
-                                        if parent_path == "." {
-                                            completion = format!("./{}", completion);
-                                        } else if !parent_path.is_empty() {
-                                            completion = format!("{}/{}", parent_path, completion);
-                                        }
-                                    } else if last_part.ends_with('/') {
-                                        // If the last part ends with a slash, preserve it
-                                        completion = format!("{}{}", last_part, completion);
-                                    }
-                                }
-                            }
-                            
-                            let last_index = cmd_parts.len() - 1;
-                            cmd_parts[last_index] = completion.as_str();
-                            completions.push(cmd_parts.join(" "));
-                        }
-                    }
-                }
-                
-                // If we found path completions, return them
-                if !completions.is_empty() {
-                    return completions;
-                }
-            }
-        }
-    }
-
-    // Update the directory_commands array to include ls and make sure it works with flags
-    if parts.len() >= 1 && cmd.ends_with(' ') {
-        // Get the base command without arguments
-        let base_cmd = parts[0];
-        
-        // Commands that work with directories (we'll suggest directories first, then files if appropriate)
-        let directory_commands = ["cd", "mkdir", "rmdir", "find"];
-        
-        // Commands that work with files (we'll suggest both files and directories)
-        let file_commands = ["cat", "vim", "nano", "less", "more", "touch", "grep", "head", "tail", "ls", "cp", "mv", "rm", "chmod", "chown"];
-        
-        // Special handling for ls with flags
-        let is_ls_with_flags = base_cmd == "ls" && parts.len() > 1 && parts.iter().any(|p| p.starts_with('-'));
-        
-        // If it's a directory command, suggest directories
-        if directory_commands.contains(&base_cmd) {
-            let mut completions = Vec::new();
-            
-            // Suggest current directory entries with preference for directories
-            if let Ok(entries) = fs::read_dir(".") {
-                // First add directories
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            // Skip hidden directories (starting with .)
-                            if !name.starts_with('.') {
-                                completions.push(format!("{} {}/", cmd.trim_end(), name));
-                            }
-                        }
-                    }
-                }
-                
-                // If it's not cd, also add files (cd only works with directories)
-                if base_cmd != "cd" {
-                    if let Ok(entries) = fs::read_dir(".") {
-                        for entry in entries {
-                            if let Ok(entry) = entry {
-                                let path = entry.path();
-                                if !path.is_dir() {
-                                    let name = entry.file_name().to_string_lossy().to_string();
-                                    // Skip hidden files
-                                    if !name.starts_with('.') {
-                                        completions.push(format!("{} {}", cmd.trim_end(), name));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Limit completions to a reasonable number
-                if !completions.is_empty() {
-                    completions.truncate(15);
-                    return completions;
-                }
-            }
-        }
-        // If it's a file command or ls with flags, suggest files and directories
-        else if file_commands.contains(&base_cmd) || is_ls_with_flags {
-            let mut completions = Vec::new();
-            
-            // Suggest current directory entries
-            if let Ok(entries) = fs::read_dir(".") {
-                let mut entries_vec: Vec<_> = entries.filter_map(Result::ok).collect();
-                
-                // Sort entries: directories first, then files
-                entries_vec.sort_by(|a, b| {
-                    let a_is_dir = a.path().is_dir();
-                    let b_is_dir = b.path().is_dir();
-                    if a_is_dir && !b_is_dir {
-                        std::cmp::Ordering::Less
-                    } else if !a_is_dir && b_is_dir {
-                        std::cmp::Ordering::Greater
-                    } else {
-                        a.file_name().cmp(&b.file_name())
-                    }
-                });
-                
-                // Add both files and directories for file commands
-                for entry in entries_vec {
-                    let path = entry.path();
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    // Skip hidden files/dirs
-                    if !name.starts_with('.') {
-                        if path.is_dir() {
-                            completions.push(format!("{}{}/", cmd.trim_end(), name));
-                        } else {
-                            completions.push(format!("{}{}", cmd.trim_end(), name));
-                        }
-                    }
-                }
-                
-                // Limit completions to a reasonable number
-                if !completions.is_empty() {
-                    completions.truncate(15);
-                    return completions;
-                }
-            }
-        }
     }
 
     // Handle common docker completions explicitly

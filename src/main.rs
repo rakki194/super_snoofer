@@ -597,7 +597,6 @@ fn handle_help_command(command: &str) {
         );
         println!("  --record-correction TYPO CORRECTION  Record a correction for history (quiet)");
         println!("  --record-valid-command CMD           Record a valid command usage (quiet)");
-        println!("  --record-failed-command CMD          Record a failed command (quiet)");
         println!(
             "  --suggest-completion CMD             Get real-time command suggestions (for shell integration)"
         );
@@ -648,21 +647,6 @@ fn handle_check_command(args: &[String]) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Handle recording a failed command
-fn handle_record_failed_command(args: &[String]) -> Result<()> {
-    if args.is_empty() {
-        print_error("No command provided for --record-failed-command");
-        exit(1);
-    }
-
-    let failed_command = &args[0];
-    let mut cache = CommandCache::load()?;
-    cache.record_failed_command(failed_command);
-    cache.save()?;
-
-    exit(0);
 }
 
 /// Print an error message to stderr
@@ -903,8 +887,6 @@ fn main() -> Result<()> {
             handle_record_correction(&args)?;
         } else if command == "--record-valid-command" {
             handle_record_valid_command(&args)?;
-        } else if command == "--record-failed-command" {
-            handle_record_failed_command(&args[2..].to_vec())?;
         } else if command == "--suggest-completion" {
             handle_suggest_completion(&args)?;
         } else if command == "--suggest-full-completion" {

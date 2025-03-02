@@ -11,12 +11,10 @@ SUPER_SNOOFER_EARLY_SUGGESTIONS=true    # Enable/disable suggestions after first
 SUPER_SNOOFER_FULL_COMPLETIONS=true     # Prioritize full command completions over partial ones
 SUPER_SNOOFER_TYPO_CORRECTION=true      # Prioritize typo correction when using Tab
 SUPER_SNOOFER_FUZZY_MATCHING=true
-SUPER_SNOOFER_FILE_COMPLETIONS=true    # Enable file/directory completions for commands like cat, ls, etc.
 SUPER_SNOOFER_FREQUENT_COMMANDS=true
-SUPER_SNOOFER_DEBUG=false              # Enable debug logging to ~/.super_snoofer_debug.log
 
 # Commands to exclude from auto-correction (space-separated)
-SUPER_SNOOFER_EXCLUDE_COMMANDS="vim vi nano emacs cd ls cat grep find curl wget rl git cp mv rm mkdir touch echo python cargo rustc ssh scp"
+SUPER_SNOOFER_EXCLUDE_COMMANDS="vim vi nano emacs cd ls cat grep find curl wget"
 
 # Flag to prevent recursive correction
 __super_snoofer_running=false
@@ -31,14 +29,10 @@ __super_snoofer_correction=""
 : ${SUPER_SNOOFER_SUGGESTIONS_ENABLED:=true}
 : ${SUPER_SNOOFER_TYPO_CORRECTION:=true}
 : ${SUPER_SNOOFER_EARLY_COMPLETIONS:=true}
-: ${SUPER_SNOOFER_EARLY_SUGGESTIONS:=true}
 : ${SUPER_SNOOFER_FULL_COMPLETIONS:=true}
 : ${SUPER_SNOOFER_COMPLETION_ENABLED:=true}
-: ${SUPER_SNOOFER_FILE_COMPLETIONS:=true}
 : ${SUPER_SNOOFER_FUZZY_MATCHING:=true}
 : ${SUPER_SNOOFER_FREQUENT_COMMANDS:=true}
-: ${SUPER_SNOOFER_DEBUG:=false}
-: ${SUPER_SNOOFER_CHECK_ON_ENTER:=false}
 
 # Initialize script load tracking variable
 : ${__SUPER_SNOOFER_LOADED:=false}
@@ -183,16 +177,6 @@ __super_snoofer_suggest() {
     return
   fi
   
-  # Get the current command
-  local cmd="$BUFFER"
-  local first_word="$(__super_snoofer_get_command "$cmd")"
-  
-  # Skip if command should be excluded
-  if [[ -n "$first_word" ]] && __super_snoofer_should_exclude "$first_word"; then
-    __super_snoofer_clear_suggestion
-    return
-  fi
-  
   # For early suggestions, we want to provide suggestions even when the buffer has just one character
   # For non-early suggestions, we only provide when cursor is at the end
   if [[ "$SUPER_SNOOFER_EARLY_SUGGESTIONS" != "true" && (-z "$BUFFER" || "$CURSOR" -ne "${#BUFFER}") ]] || 
@@ -201,6 +185,25 @@ __super_snoofer_suggest() {
     if [[ "$__super_snoofer_suggestion_displayed" == "true" ]]; then
       __super_snoofer_clear_suggestion
     fi
+    return
+  fi
+  
+  # Don't suggest if cursor is not at the end (fixed condition)
+  if [[ "$CURSOR" -ne "${#BUFFER}" ]]; then
+    if [[ "$__super_snoofer_suggestion_displayed" == "true" ]]; then
+      __super_snoofer_clear_suggestion
+    fi
+    return
+  fi
+  
+  # Get the current command
+  local cmd="$BUFFER"
+  local first_char="${cmd:0:1}"
+  local first_word="$(__super_snoofer_get_command "$cmd")"
+  
+  # Skip if command should be excluded
+  if [[ ${#cmd} -gt 1 && -n "$first_word" ]] && __super_snoofer_should_exclude "$first_word"; then
+    __super_snoofer_clear_suggestion
     return
   fi
   
@@ -332,13 +335,6 @@ __super_snoofer_clear_suggestion() {
   fi
 }
 
-# Add a debug function to help with troubleshooting
-__super_snoofer_debug() {
-  if [[ "$SUPER_SNOOFER_DEBUG" == "true" ]]; then
-    echo "DEBUG: $1" >> ~/.super_snoofer_debug.log
-  fi
-}
-
 # Function to accept the current suggestion
 __super_snoofer_accept_suggestion() {
   # First check if we have a displayed suggestion
@@ -353,60 +349,23 @@ __super_snoofer_accept_suggestion() {
     return
   fi
   
-  # Check if this is a file command followed by a space (for tab completion)
-  if [[ "$SUPER_SNOOFER_FILE_COMPLETIONS" == "true" && "$SUPER_SNOOFER_FULL_COMPLETIONS" == "true" ]]; then
-    local cmd="$BUFFER"
-    local first_word="${cmd%% *}"
-    
-    # List of file commands that should trigger our file completions
-    local file_commands=("cat" "vim" "nano" "less" "more" "touch" "grep" "head" "tail" "ls" "cd" "cp" "mv" "rm" "find" "chmod" "chown")
-    
-    # Check if the command starts with a file command and ends with a space
-    local is_file_cmd=false
-    if [[ " ${file_commands[@]} " =~ " ${first_word} " ]]; then
-      is_file_cmd=true
-    fi
-    
-    # Special handling for ls with flags (e.g., ls -la )
-    local is_ls_with_flags=false
-    if [[ "$first_word" == "ls" && "$cmd" =~ "ls -" && "$cmd" =~ " +$" ]]; then
-      is_ls_with_flags=true
-      __super_snoofer_debug "Detected ls with flags: $cmd"
-    fi
-    
-    # Check if we should provide file completions
-    if [[ "$is_file_cmd" == "true" && "$cmd" =~ " +$" ]] || [[ "$is_ls_with_flags" == "true" ]]; then
-      __super_snoofer_debug "Processing command: '$cmd' for file completion"
-      
-      # Get file/directory completions directly
-      local all_files=()
-      local all_dirs=()
-      
-      # Get list of files and directories
-      for item in *; do
-        if [[ -d "$item" ]]; then
-          all_dirs+=("$item/")
-        elif [[ -f "$item" && ! "$item" =~ ^\. ]]; then
-          all_files+=("$item")
-        fi
-      done
-      
-      # Create our completions list - directories first, then files
-      local comps=("${all_dirs[@]}" "${all_files[@]}")
-      
-      # Use standard ZSH completion system to display the menu
-      if [[ ${#comps[@]} -gt 0 ]]; then
-        __super_snoofer_debug "Found ${#comps[@]} completions"
-        compadd -U -Q -- "${comps[@]}"
-        compstate[insert]=menu
+  # If no suggestion is displayed, try to check for typos
+  if [[ "$SUPER_SNOOFER_TYPO_CORRECTION" == "true" && -n "$BUFFER" ]]; then
+    if __super_snoofer_check_typos "$BUFFER"; then
+      # Apply the typo correction
+      local corrected="$__super_snoofer_correction"
+      if [[ -n "$corrected" && "$corrected" != "$BUFFER" ]]; then
+        echo -e "\033[0;33mCommand corrected: \033[0;32m$corrected\033[0m"
+        BUFFER="$corrected"
+        CURSOR=${#BUFFER}
+        __super_snoofer_correction=""
+        zle -R
         return
-      else
-        __super_snoofer_debug "No completions found in current directory"
       fi
     fi
   fi
   
-  # Skip typo correction and just use regular ZSH tab completion if our special handling didn't apply
+  # If no suggestion and no typo correction, perform default tab completion
   zle .expand-or-complete
 }
 
@@ -447,10 +406,8 @@ __super_snoofer_preexec() {
     return
   fi
   
-  # Only check/correct if CHECK_ON_ENTER is enabled
-  if [[ "$SUPER_SNOOFER_CHECK_ON_ENTER" == "true" ]]; then
+  # Check and correct the command
   __super_snoofer_check_command "$cmd"
-fi
 }
 
 # Set up the precmd hook (runs after command execution)
@@ -467,20 +424,6 @@ __super_snoofer_precmd() {
 
 # Function to be called before ZLE accepts a line
 __super_snoofer_accept_line() {
-  # Always force the buffer to be only what the user has typed up to the cursor
-  # This ensures suggestions are never used when pressing Enter
-  if [[ "$CURSOR" -lt "${#BUFFER}" ]]; then
-    # There's some text after the cursor that may be a suggestion
-    BUFFER="${BUFFER:0:$CURSOR}"
-  fi
-  
-  # Clear any displayed suggestions
-  if [[ "$__super_snoofer_suggestion_displayed" == "true" ]]; then
-    region_highlight=()
-    __super_snoofer_suggestion=""
-    __super_snoofer_suggestion_displayed=false
-  fi
-  
   # Check if the command has corrections needed
   local cmd="$BUFFER"
   
@@ -498,11 +441,6 @@ __super_snoofer_accept_line() {
     if [[ -n "$corrected_cmd" ]]; then
       BUFFER="$corrected_cmd"
     fi
-  fi
-  
-  # Only run command check if explicitly enabled
-  if [[ "$SUPER_SNOOFER_CHECK_ON_ENTER" == "true" ]]; then
-    __super_snoofer_check_command "$BUFFER"
   fi
   
   __super_snoofer_last_cmd="$BUFFER"
@@ -661,17 +599,6 @@ super_snoofer_toggle_frequent_commands() {
   fi
 }
 
-# Function to toggle file completions on/off
-super_snoofer_toggle_file_completions() {
-  if [[ "$SUPER_SNOOFER_FILE_COMPLETIONS" == "true" ]]; then
-    SUPER_SNOOFER_FILE_COMPLETIONS=false
-    echo "Super Snoofer file completions disabled 🐺❌"
-  else
-    SUPER_SNOOFER_FILE_COMPLETIONS=true
-    echo "Super Snoofer file completions enabled 🐺✅"
-  fi
-}
-
 # Function to reload completions
 super_snoofer_reload_completions() {
   if [[ "$SUPER_SNOOFER_COMPLETION_ENABLED" == "true" ]]; then
@@ -699,20 +626,4 @@ if [[ "$SUPER_SNOOFER_ENABLED" == "true" && "$__SUPER_SNOOFER_LOADED" == "false"
   echo "Super Snoofer ZSH integration loaded 🐺 (auto-suggestions, early/full completions, frequent commands, typo correction enabled)"
   # Mark as loaded to prevent repeated messages
   __SUPER_SNOOFER_LOADED=true
-fi
-
-# Ensure checking on enter is disabled by default
-SUPER_SNOOFER_CHECK_ON_ENTER=false
-
-# Function to toggle debug mode on/off
-super_snoofer_toggle_debug() {
-  if [[ "$SUPER_SNOOFER_DEBUG" == "true" ]]; then
-    SUPER_SNOOFER_DEBUG=false
-    echo "Super Snoofer debug mode disabled 🐺❌"
-  else
-    SUPER_SNOOFER_DEBUG=true
-    echo "Super Snoofer debug mode enabled 🐺✅ (logging to ~/.super_snoofer_debug.log)"
-    # Clear the debug log when enabling
-    echo "--- Debug log started $(date) ---" > ~/.super_snoofer_debug.log
-  fi
-}
+fi 
