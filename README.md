@@ -1,11 +1,12 @@
 # 🐺 Super Snoofer
 
-Super Snoofer is an intelligent command correction utility that:
+A fuzzy command finder for shells that suggests and executes similar commands when a typo is made. When you mistype a command, Super Snoofer will suggest the closest matching command and offer to execute it for you.  
 
-1. Intercepts typos before they cause errors
-2. Learns from your command usage patterns
-3. Provides auto-completion for commands and arguments
-4. Builds knowledge of commands and their arguments over time
+```plaintext
+$ gti status
+Awoo! 🐺 Did you mean `git status`? *wags tail* (Y/n/c) y
+Running suggested command...
+```
 
 ## ✨ Features
 
@@ -23,14 +24,6 @@ Super Snoofer is an intelligent command correction utility that:
 - 🕵️ History tracking that can be enabled or disabled for privacy
 - 🧩 Smart shell configuration for creating and managing aliases
 - 🔍 Enhanced typo correction for common commands like Git
-- ✨ Proactive typo detection for all commands, not just missing ones
-- 📊 Command history analytics to suggest better corrections
-- 🔄 Background learning from successfully executed commands
-- 🔄 Auto-completion for commands and arguments
-- 🔄 Low system impact by incrementally building knowledge
-- 🔄 Command history analytics to suggest better corrections
-- 🔄 Customizable command exclusion preferences
-- 💡 Real-time command suggestions as you type
 
 ## 📦 Installation
 
@@ -50,78 +43,42 @@ cargo install --path .
 
 ## 🔧 Setup
 
-Super Snoofer offers two levels of integration with your shell:
-
-1. **Basic Integration** (command-not-found handler only): Suggests corrections when a command doesn't exist
-2. **Advanced Integration** (proactive correction): Intercepts and corrects typos in all commands before execution
-
 ### ZSH Integration
-
-#### Recommended Setup (Clean .zshrc)
-
-For the cleanest and most maintainable setup, source the `zsh_integration.zsh` file directly from your `.zshrc`:
-
-1. First, ensure the zsh_integration.zsh file is in your Super Snoofer directory
-2. Add just this single line to your `.zshrc`:
-
-```bash
-# Super Snoofer integration
-if [[ -f /path/to/super_snoofer/zsh_integration.zsh ]]; then
-  source /path/to/super_snoofer/zsh_integration.zsh
-fi
-```
-
-This approach:
-
-- Keeps your `.zshrc` clean and organized
-- Makes it easy to update Super Snoofer independently
-- Maintains all functionality in a single external file
-- Allows toggling Super Snoofer by commenting out just one line
-
-#### Basic Integration (Command-not-found handler only)
 
 Add this to your `~/.zshrc`:
 
 ```bash
 command_not_found_handler() {
-    super_snoofer "$@"
+    super_snoofer "$1"
     return $?
 }
 ```
 
 ### Bash Integration
 
-#### Basic Integration (Command-not-found handler only)
-
 Add this to your `~/.bashrc`:
 
 ```bash
 command_not_found_handle() {
-    super_snoofer "$@"
+    super_snoofer "$1"
     return $?
 }
 ```
 
 ### Fish Integration
 
-#### Basic Integration (Command-not-found handler only)
-
 Create a function in `~/.config/fish/functions/fish_command_not_found.fish`:
 
 ```fish
 function fish_command_not_found
-    super_snoofer $argv[1]
+    super_snoofer "$argv[1]"
     return $status
 end
 ```
 
 ## 🎯 Usage
 
-Super Snoofer works in two ways depending on your integration level:
-
-### Basic Usage (command-not-found handler)
-
-When you type a command that doesn't exist, Super Snoofer will:
+Super Snoofer works automatically once integrated with your shell. When you type a command that doesn't exist, it will:
 
 1. Search for similar commands in your PATH
 2. If a match is found, suggest it with a friendly prompt
@@ -130,18 +87,6 @@ When you type a command that doesn't exist, Super Snoofer will:
    - Press 'n' to reject the suggestion
    - Press 'c' to teach Super Snoofer the correct command
 4. Exit with the appropriate status code
-
-### Advanced Usage (proactive correction)
-
-With advanced integration, Super Snoofer will:
-
-1. Intercept all commands before they execute
-2. Check for typos in the command, arguments, and flags
-3. If typos are found, suggest a corrected version
-4. You can:
-   - Press Enter to use the corrected command
-   - Press Ctrl+C to cancel and use the original command
-5. Learn from your successfully executed commands
 
 ### Command Line Options
 
@@ -156,66 +101,34 @@ super_snoofer --clear-history        # Clear your command history
 super_snoofer --enable-history       # Enable command history tracking
 super_snoofer --disable-history      # Disable command history tracking
 super_snoofer --suggest              # Suggest personalized shell aliases
-super_snoofer --check-command <cmd>  # Check if a command has typos (for shell integration)
-super_snoofer --record-correction <typo> <correction>  # Record a correction for history
-super_snoofer --record-valid-command <cmd>  # Record a valid command usage
-super_snoofer --suggest-completion <cmd>  # Get real-time command suggestions (for shell integration)
-super_snoofer --enable-completion    # Enable ZSH auto-completion
-super_snoofer --disable-completion   # Disable ZSH auto-completion
-super_snoofer --export-completions [PATH]  # Export completion script to a file
 ```
 
 ### Example Interactions
 
-#### Basic Usage (command-not-found handler)
-
 ```bash
 # Basic suggestion and execution
 $ carg build
-Command 'carg' not found! Did you mean:
-1. cargo
-2. Enter custom command
-3. Add permanent shell alias
-4. Exit without running
-Enter your choice (1-4): 1
+Awoo! 🐺 Did you mean `cargo`? *wags tail* (Y/n/c) y
+Running suggested command...
    Compiling super_snoofer v0.1.0
 
 # Teaching Super Snoofer a correction
 $ gti status
-Command 'gti' not found! Did you mean:
-1. git
-2. Enter custom command
-3. Add permanent shell alias
-4. Exit without running
-Enter your choice (1-4): 2
-Enter the correct command: git
+Awoo! 🐺 Did you mean `got`? *wags tail* (Y/n/c) c
+What's the correct command? git
 Got it! 🐺 I'll remember that 'gti' means 'git'
 [git output follows...]
-```
 
-#### Advanced Usage (proactive correction)
+# Using a learned correction
+$ gti status
+Awoo! 🐺 Did you mean `git`? *wags tail* (Y/n/c) y
+Running suggested command...
+[git output follows...]
 
-```bash
-# Proactive command correction
-$ gti stauts
-🐺 Did you mean: git status
-Press Enter to use the corrected command, or Ctrl+C to cancel
-[Press Enter]
-[git status output follows...]
-
-# Command with typo'd flags
-$ git commt --al
-🐺 Did you mean: git commit --all
-Press Enter to use the corrected command, or Ctrl+C to cancel
-[Press Enter]
-[git commit output follows...]
-
-# Docker command with multiple typo'd flags
-$ dokcer run --detetch --naem container
-🐺 Did you mean: docker run --detach --name container
-Press Enter to use the corrected command, or Ctrl+C to cancel
-[Press Enter]
-[docker run output follows...]
+# Rejecting a suggestion
+$ pythn
+Awoo! 🐺 Did you mean `python`? *wags tail* (Y/n/c) n
+Command 'pythn' not found! 🐺
 ```
 
 ## ⚙️ Configuration
@@ -229,8 +142,7 @@ The cache contains:
 
 - List of available commands in your PATH (refreshed daily)
 - Learned command corrections (persistent unless cleared)
-- Command execution history and frequency data
-- Shell aliases for suggestions
+- Command execution history
 
 Cache Management:
 
@@ -239,74 +151,97 @@ Cache Management:
 - Use `--reset_cache` to manually clear the command cache
 - Use `--reset_memory` to clear both cache and learned corrections
 
-### Customizing Advanced Integration
-
-You can customize the advanced shell integration in several ways:
-
-#### Exempted Commands
-
-Edit the `exempted_commands` array in your shell integration to skip correction for certain commands:
-
-```bash
-# Add commands you want to exempt from correction:
-local exempted_commands=("cd" "ls" "pwd" "echo" "clear" "exit" "ssh" "vim" "gl")
-```
-
-This is useful for:
-
-- Short or frequently used commands where typos are rare
-- Commands where interrupting with a correction would be disruptive
-- Commands that are part of automated scripts
-
 ## 🔬 Technical Details
 
 ### Command Learning
 
-Super Snoofer can learn from your corrections in two ways:
+Super Snoofer can learn from your corrections:
 
-1. **Explicit learning**: When you choose to teach it a correction
-   - Occurs when you select "Enter custom command" when a command isn't found
-   - Learned corrections take precedence over fuzzy matching
-   - Corrections are persisted in the cache file
-
-2. **Passive learning** (with advanced integration):
-   - Records corrections you accept via the preexec hook
-   - Records successful commands you run via the postexec hook
-   - Builds a frequency map of commands to improve suggestions
-
-### Proactive Correction
-
-With advanced integration, Super Snoofer can:
-
-1. Correct typos in the command itself (`gti` → `git`)
-2. Correct typos in arguments (`git stauts` → `git status`)
-3. Correct typos in flags (`git commit --al` → `git commit --all`)
-4. Handle multiple typos in a single command line
-
-The correction uses a knowledge base of common commands and their arguments/flags, with special handling for:
-
-- Git commands
-- Docker commands
-- Cargo (Rust) commands
-- npm commands
-- kubectl commands
+- When a suggestion is wrong, press 'c' to teach it the right command
+- Learned corrections take precedence over fuzzy matching
+- Corrections are persisted in the cache file
+- Only valid commands can be learned as corrections
+- Learned corrections are ~500x faster than fuzzy matching
 
 ### Performance
 
-All Super Snoofer operations are designed to be non-blocking and lightweight:
+Command matching performance (on typical systems):
 
-- Proactive correction takes < 20ms for most commands
-- History recording happens in the background
-- Exempt commands bypass correction entirely
-- Cached corrections are retrieved in microseconds
+- Learned corrections: ~30 nanoseconds
+- Fuzzy matching (exact or typo): ~16 microseconds
+- Cache updates: performed asynchronously to minimize latency
+
+This means:
+
+- Learned corrections are nearly instant
+- Fuzzy matching is fast enough for interactive use
+- The more you teach Super Snoofer, the faster it gets
+
+### Similarity Matching
+
+Super Snoofer uses the Levenshtein distance algorithm to find similar commands, with a configurable similarity threshold (currently set to 0.6). This means:
+
+- Commands must be at least 60% similar to be suggested
+- Matches are found based on character-level differences
+- The most similar command is always suggested first
+
+### Command Discovery
+
+Super Snoofer finds commands by:
+
+1. Scanning all directories in your PATH:
+   - Finds executable files
+   - Follows symbolic links (including multi-level and circular links)
+   - Adds both symlink names and their targets to the command list
+   - Handles relative and absolute symlink paths
+
+2. Special handling for Python:
+   - Discovers Python executables (python, python3, etc.)
+   - Finds executable Python scripts in Python directories
+   - Adds both .py and non-.py versions of script names
+
+3. Command caching:
+   - Caches discovered commands for better performance
+   - Updates cache daily or on manual reset
+   - Preserves learned corrections across cache updates
+
+### Symlink Resolution
+
+Super Snoofer handles symbolic links intelligently:
+
+- Follows multi-level symlink chains (e.g., `python -> python3 -> python3.13`)
+- Adds all names in the symlink chain to the command list
+- Handles both relative and absolute symlink paths
+- Detects and safely handles circular symlinks
+- Preserves symlink-based command aliases
+
+For example, if you have:
+
+```bash
+/usr/bin/python3.13          # Actual executable
+/usr/bin/python3 -> python3.13
+/usr/bin/python -> python3
+```
+
+Super Snoofer will suggest any of these names when you make a typo:
+
+```bash
+$ pythn
+Awoo! 🐺 Did you mean `python`? *wags tail* (Y/n/c)
+
+$ pythn3
+Awoo! 🐺 Did you mean `python3`? *wags tail* (Y/n/c)
+
+$ python313
+Awoo! 🐺 Did you mean `python3.13`? *wags tail* (Y/n/c)
+```
 
 ### Security
 
 - Commands are always executed through the user's shell
 - No commands are executed without user confirmation
 - The cache file uses standard file permissions
-- Hooks run in the user's security context
-- All background operations run with reduced priority
+- Command execution preserves arguments and exit codes
 
 ## 🤝 Contributing
 
@@ -704,84 +639,3 @@ Super Snoofer can not only suggest aliases but also handle the entire configurat
 5. Suggests reload commands after configuration changes
 
 This makes it simple to integrate Super Snoofer with your workflow without needing to remember shell-specific configuration details.
-
-## 💡 Real-Time Command Suggestions
-
-Super Snoofer v0.5.0 introduces a revolutionary new feature: real-time command suggestions as you type, similar to GitHub Copilot's assistance when writing code. This feature helps you:
-
-1. **Complete commands automatically** - Suggestions appear as you type
-2. **Learn arguments and flags** - Automatic suggestions for command arguments
-3. **Correct typos instantly** - Fix mistakes before pressing Enter
-4. **Discover new options** - Learn about command flags you didn't know existed
-
-### How It Works
-
-As you type in your shell:
-
-1. Super Snoofer analyzes each keystroke in real-time
-2. It looks for possible completions based on command patterns and your usage history
-3. Suggestions appear in a faded color
-4. Press Tab to accept a suggestion or continue typing
-
-### Examples
-
-```bash
-# Completing a command
-$ git s[TAB]
-# Becomes:
-$ git status
-
-# Suggesting flags
-$ git commit --a[TAB]
-# Becomes:
-$ git commit --all
-
-# Correcting typos in real-time
-$ gti pus[TAB]
-# Becomes:
-$ git push
-
-# Command with multiple arguments
-$ docker run --deta[TAB]
-# Becomes:
-$ docker run --detach
-```
-
-### Technical Details
-
-The real-time suggestion system works by:
-
-1. Intercepting keyboard input using ZSH's widget system
-2. Triggering the `--suggest-completion` command to get suggestions
-3. Displaying suggestions using ZSH's region highlighting
-4. Accepting suggestions with the Tab key
-
-Super Snoofer learns from your command usage to make increasingly relevant and personalized suggestions. Commands, arguments, and flags used frequently will be suggested first, creating a highly personalized command-line experience.
-
-### Customization
-
-You can enable/disable real-time suggestions with:
-
-```bash
-# Toggle suggestions on/off
-$ super_snoofer_toggle_suggestions
-
-# Disable suggestions for specific commands by adding them to the exclude list
-# Edit in your .zshrc:
-SUPER_SNOOFER_EXCLUDE_COMMANDS="vim vi nano emacs cd ls cat"
-```
-
-### ZSH Integration
-
-The real-time suggestion feature is included in the advanced ZSH integration. If using our integration script, this feature is enabled by default and can be toggled on/off with the `super_snoofer_toggle_suggestions` command.
-
-```bash
-# To see if suggestions are enabled
-$ echo $SUPER_SNOOFER_SUGGESTIONS_ENABLED
-
-# To temporarily disable suggestions for the current session
-$ SUPER_SNOOFER_SUGGESTIONS_ENABLED=false
-
-# To permanently disable suggestions, edit your .zshrc:
-SUPER_SNOOFER_SUGGESTIONS_ENABLED=false
-```

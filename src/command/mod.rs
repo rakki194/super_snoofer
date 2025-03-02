@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::utils::remove_trailing_flags;
 use fancy_regex::Regex;
-use std::time::{SystemTime, Duration};
 
 /// Common commands and their arguments/flags for better correction
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10,46 +9,12 @@ pub struct CommandPattern {
     pub command: String,
     pub args: Vec<String>,
     pub flags: Vec<String>,
-    /// Last time this command was updated
-    #[serde(default = "SystemTime::now")]
-    pub last_updated: SystemTime,
-    /// Count of how many times this command was used
-    #[serde(default)]
-    pub usage_count: usize,
 }
 
 /// Map of well-known commands and their common arguments/flags
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct CommandPatterns {
-    /// Command patterns indexed by command name
-    pub patterns: HashMap<String, CommandPattern>,
-    /// Max number of arguments to store per command
-    #[serde(default = "default_max_args")]
-    max_args_per_command: usize,
-    /// Max number of flags to store per command
-    #[serde(default = "default_max_flags")]
-    max_flags_per_command: usize,
-    /// Threshold for adding new args/flags (minimum uses)
-    #[serde(default = "default_usage_threshold")]
-    usage_threshold: usize,
-    /// Last time we did a full command discovery scan
-    #[serde(default = "SystemTime::now")]
-    last_discovery_scan: SystemTime,
-}
-
-/// Default maximum number of arguments to store per command
-fn default_max_args() -> usize {
-    50
-}
-
-/// Default maximum number of flags to store per command
-fn default_max_flags() -> usize {
-    30
-}
-
-/// Default usage threshold before adding a new argument
-fn default_usage_threshold() -> usize {
-    2
+    patterns: HashMap<String, CommandPattern>,
 }
 
 /// Regular expression for extracting command and arguments
@@ -57,23 +22,12 @@ pub static COMMAND_REGEX: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(
     Regex::new(r"^(?P<cmd>\S+)(?:\s+(?P<args>.+))?$").unwrap()
 });
 
-/// Regular expression for identifying flags
-pub static FLAG_REGEX: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-    Regex::new(r"^-{1,2}[a-zA-Z0-9][\w-]*(?:=.*)?$").unwrap()
-});
-
-impl Default for CommandPatterns {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CommandPatterns {
     /// Create a new `CommandPatterns` instance with predefined common commands
     #[must_use] pub fn new() -> Self {
         let mut patterns = HashMap::new();
         
-        // Git commands - We'll keep some initial data to help with common commands
+        // Git commands
         patterns.insert("git".to_string(), CommandPattern {
             command: "git".to_string(),
             args: vec![
@@ -88,44 +42,83 @@ impl CommandPatterns {
                 "--help".to_string(), "--version".to_string(), "-v".to_string(),
                 "--verbose".to_string(), "--global".to_string(), "--all".to_string(),
             ],
-            last_updated: SystemTime::now(),
-            usage_count: 1,
         });
         
-        // We'll keep a few more common commands as seed data
+        // Docker commands
         patterns.insert("docker".to_string(), CommandPattern {
             command: "docker".to_string(),
             args: vec![
                 "run".to_string(), "build".to_string(), "pull".to_string(),
-                "ps".to_string(), "exec".to_string(), "logs".to_string(),
+                "push".to_string(), "ps".to_string(), "exec".to_string(),
+                "logs".to_string(), "stop".to_string(), "start".to_string(),
+                "restart".to_string(), "rm".to_string(), "rmi".to_string(),
+                "volume".to_string(), "network".to_string(), "container".to_string(),
+                "image".to_string(), "compose".to_string(), "system".to_string(),
             ],
             flags: vec![
-                "--help".to_string(), "-h".to_string(), "--version".to_string(),
+                "--help".to_string(), "--version".to_string(), "-v".to_string(),
+                "-d".to_string(), "--detach".to_string(), "-it".to_string(),
+                "-p".to_string(), "--port".to_string(), "--name".to_string(),
+                "-e".to_string(), "--env".to_string(), "--rm".to_string(),
             ],
-            last_updated: SystemTime::now(),
-            usage_count: 1,
         });
         
+        // Cargo commands
         patterns.insert("cargo".to_string(), CommandPattern {
             command: "cargo".to_string(),
             args: vec![
                 "build".to_string(), "run".to_string(), "test".to_string(),
-                "check".to_string(), "clean".to_string(),
+                "check".to_string(), "clean".to_string(), "doc".to_string(),
+                "publish".to_string(), "install".to_string(), "uninstall".to_string(),
+                "update".to_string(), "search".to_string(), "fmt".to_string(),
+                "clippy".to_string(), "bench".to_string(), "new".to_string(),
+                "init".to_string(), "add".to_string(), "remove".to_string(),
             ],
             flags: vec![
-                "--help".to_string(), "--version".to_string(), "--release".to_string(),
+                "--help".to_string(), "--version".to_string(), "-v".to_string(),
+                "--verbose".to_string(), "--release".to_string(), "--all".to_string(),
+                "-p".to_string(), "--package".to_string(), "--lib".to_string(),
+                "--bin".to_string(), "--example".to_string(), "--features".to_string(),
             ],
-            last_updated: SystemTime::now(),
-            usage_count: 1,
         });
         
-        Self { 
-            patterns,
-            max_args_per_command: default_max_args(),
-            max_flags_per_command: default_max_flags(),
-            usage_threshold: default_usage_threshold(),
-            last_discovery_scan: SystemTime::now(),
-        }
+        // NPM commands
+        patterns.insert("npm".to_string(), CommandPattern {
+            command: "npm".to_string(),
+            args: vec![
+                "install".to_string(), "uninstall".to_string(), "update".to_string(),
+                "init".to_string(), "start".to_string(), "test".to_string(),
+                "run".to_string(), "publish".to_string(), "audit".to_string(),
+                "ci".to_string(), "build".to_string(), "list".to_string(),
+                "link".to_string(), "pack".to_string(), "search".to_string(),
+            ],
+            flags: vec![
+                "--help".to_string(), "--version".to_string(), "-v".to_string(),
+                "--global".to_string(), "--save".to_string(), "--save-dev".to_string(),
+                "-g".to_string(), "-D".to_string(), "--production".to_string(),
+                "--force".to_string(), "--silent".to_string(), "--quiet".to_string(),
+            ],
+        });
+        
+        // Kubectl commands
+        patterns.insert("kubectl".to_string(), CommandPattern {
+            command: "kubectl".to_string(),
+            args: vec![
+                "get".to_string(), "describe".to_string(), "create".to_string(),
+                "delete".to_string(), "apply".to_string(), "exec".to_string(),
+                "logs".to_string(), "port-forward".to_string(), "proxy".to_string(),
+                "config".to_string(), "scale".to_string(), "rollout".to_string(),
+                "expose".to_string(), "run".to_string(), "label".to_string(),
+            ],
+            flags: vec![
+                "--help".to_string(), "--version".to_string(), "--namespace".to_string(),
+                "-n".to_string(), "--all-namespaces".to_string(), "-A".to_string(),
+                "--output".to_string(), "-o".to_string(), "--selector".to_string(),
+                "-l".to_string(), "--context".to_string(), "--cluster".to_string(),
+            ],
+        });
+        
+        Self { patterns }
     }
     
     /// Get a command pattern by command name
@@ -138,181 +131,9 @@ impl CommandPatterns {
         self.get(command).map(|pattern| &pattern.args)
     }
     
-    /// Check if a command is a known command
+    /// Check if a command is a well-known command
     #[must_use] pub fn is_known_command(&self, command: &str) -> bool {
         self.patterns.contains_key(command)
-    }
-    
-    /// Learn from a valid command execution
-    /// Adds the command and its arguments to our knowledge base
-    pub fn learn_from_command(&mut self, command_line: &str) {
-        // Extract command and arguments
-        let captures = match COMMAND_REGEX.captures(command_line) {
-            Ok(Some(caps)) => caps,
-            _ => return, // Can't parse the command line
-        };
-        
-        let cmd = match captures.name("cmd") {
-            Some(cmd) => cmd.as_str(),
-            None => return, // No command found
-        };
-        
-        // Skip learning for some common command line tools like grep, cat, etc.
-        if ["grep", "cat", "less", "more", "head", "tail"].contains(&cmd) {
-            return;
-        }
-        
-        // Create or update the command pattern
-        if let Some(pattern) = self.patterns.get_mut(cmd) {
-            // Command exists, update it
-            pattern.usage_count += 1;
-            pattern.last_updated = SystemTime::now();
-            
-            // Process arguments if present
-            if let Some(args_match) = captures.name("args") {
-                let args_str = args_match.as_str();
-                
-                // This is a simple split - for a production system we'd need more
-                // sophisticated parsing to handle quotes, escapes, etc.
-                let arg_parts: Vec<&str> = args_str.split_whitespace().collect();
-                
-                // Process each argument
-                for arg in arg_parts {
-                    // Skip very short arguments - likely to be filenames
-                    if arg.len() < 2 {
-                        continue;
-                    }
-                    
-                    let is_flag = FLAG_REGEX.is_match(arg).unwrap_or(false);
-                    
-                    if is_flag {
-                        // It's a flag - add it to flags if not already present
-                        if !pattern.flags.contains(&arg.to_string()) {
-                            // Maintain size limit
-                            if pattern.flags.len() >= self.max_flags_per_command {
-                                pattern.flags.remove(0);
-                            }
-                            pattern.flags.push(arg.to_string());
-                        }
-                    } else {
-                        // It's a regular argument
-                        // Skip arguments that look like paths or filenames
-                        if arg.contains('/') || arg.contains('\\') || arg.contains('.') {
-                            continue;
-                        }
-                        
-                        // Only consider adding if usage count exceeds threshold
-                        if pattern.usage_count >= self.usage_threshold {
-                            // Add the argument if not already present
-                            if !pattern.args.contains(&arg.to_string()) {
-                                // Maintain size limit
-                                if pattern.args.len() >= self.max_args_per_command {
-                                    pattern.args.remove(0);
-                                }
-                                pattern.args.push(arg.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // Command doesn't exist, create a new pattern
-            let mut new_pattern = CommandPattern {
-                command: cmd.to_string(),
-                args: Vec::new(),
-                flags: Vec::new(),
-                last_updated: SystemTime::now(),
-                usage_count: 1,
-            };
-            
-            // Process arguments if present
-            if let Some(args_match) = captures.name("args") {
-                let args_str = args_match.as_str();
-                let arg_parts: Vec<&str> = args_str.split_whitespace().collect();
-                
-                // Process each argument
-                for arg in arg_parts {
-                    // Skip very short arguments
-                    if arg.len() < 2 {
-                        continue;
-                    }
-                    
-                    let is_flag = FLAG_REGEX.is_match(arg).unwrap_or(false);
-                    
-                    if is_flag {
-                        // It's a flag - add to flags
-                        new_pattern.flags.push(arg.to_string());
-                    }
-                    // We don't add regular arguments on first usage
-                }
-            }
-            
-            // Add the new pattern
-            self.patterns.insert(cmd.to_string(), new_pattern);
-        }
-    }
-    
-    /// Generate ZSH completion script for a command
-    #[must_use] pub fn generate_zsh_completion(&self, command: &str) -> Option<String> {
-        let pattern = self.get(command)?;
-        
-        let mut completion = format!("#compdef {}\n\n", command);
-        completion.push_str("_arguments \\\n");
-        
-        // Add flags
-        for flag in &pattern.flags {
-            completion.push_str(&format!("  '{}[{}]' \\\n", flag, flag));
-        }
-        
-        // Add arguments - in ZSH we'll use them as completions for the first argument
-        if !pattern.args.is_empty() {
-            completion.push_str("  '*:arg:->args' \\\n");
-            completion.push_str("\n\ncase $state in\n");
-            completion.push_str("  args)\n");
-            completion.push_str("    local -a args\n");
-            completion.push_str("    args=(\n");
-            
-            for arg in &pattern.args {
-                completion.push_str(&format!("      '{}:{}'\n", arg, arg));
-            }
-            
-            completion.push_str("    )\n");
-            completion.push_str("    _describe 'command arguments' args\n");
-            completion.push_str("    ;;\n");
-            completion.push_str("esac\n");
-        }
-        
-        Some(completion)
-    }
-    
-    /// Generate a combined ZSH completion script for all known commands
-    #[must_use] pub fn generate_all_completions(&self) -> String {
-        let mut all_completions = String::new();
-        all_completions.push_str("# Generated by super_snoofer\n\n");
-        
-        for command in self.patterns.keys() {
-            if let Some(completion) = self.generate_zsh_completion(command) {
-                all_completions.push_str(&format!("# Completion for {}\n", command));
-                all_completions.push_str(&completion);
-                all_completions.push_str("\n\n");
-            }
-        }
-        
-        all_completions
-    }
-    
-    /// Check if we need to do a discovery scan
-    #[must_use] pub fn should_run_discovery(&self) -> bool {
-        // Only run discovery every 7 days
-        if let Ok(duration) = SystemTime::now().duration_since(self.last_discovery_scan) {
-            return duration > Duration::from_secs(7 * 24 * 60 * 60);
-        }
-        false
-    }
-    
-    /// Update the discovery scan timestamp
-    pub fn update_discovery_timestamp(&mut self) {
-        self.last_discovery_scan = SystemTime::now();
     }
     
     /// Find a similar argument for a command
@@ -394,12 +215,6 @@ pub fn fix_command_line(
         return Some("docker ps".to_string());
     }
     
-    // First, check if the entire command line has a direct correction
-    // by calling find_similar_fn with the whole command line
-    if let Some(direct_correction) = find_similar_fn(command_line) {
-        return Some(direct_correction);
-    }
-    
     // Match command and arguments
     let captures = COMMAND_REGEX.captures(command_line).ok()??;
     let cmd = captures.name("cmd")?.as_str();
@@ -429,16 +244,6 @@ pub fn fix_command_line(
                     corrected_arg
                 } else {
                     format!("{corrected_arg}{flags}")
-                });
-                continue;
-            }
-        } else if arg_base.starts_with('-') {
-            // This is a flag, try to correct it
-            if let Some(corrected_flag) = command_patterns.find_similar_flag(&corrected_cmd, arg_base, 0.5) {
-                corrected_args.push(if flags.is_empty() {
-                    corrected_flag
-                } else {
-                    format!("{corrected_flag}{flags}")
                 });
                 continue;
             }

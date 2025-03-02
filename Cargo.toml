@@ -1,6 +1,6 @@
 [package]
 name = "super_snoofer"
-version = "0.4.0"
+version = "0.3.1"
 edition = "2024"
 authors = ["rakki194"]
 description = "A fuzzy command finder that suggests similar commands when a typo is made"
@@ -27,7 +27,6 @@ fancy-regex = "0.14.0"
 humantime = "2.1.0"
 rand = "0.9.0"
 env_logger = "0.11.6"
-shellexpand = "3.1.0"
 
 [dev-dependencies]
 tempfile = "3.17.1"

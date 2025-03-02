@@ -84,25 +84,6 @@ impl HistoryManager {
         Self::default()
     }
     
-    /// Add a valid command to the history
-    /// This helps track what commands are used successfully
-    pub fn add_valid_command(&mut self, command: &str) {
-        // Skip recording if history is disabled
-        if !self.history_enabled {
-            return;
-        }
-        
-        // Extract the base command (first word)
-        let base_command = command.split_whitespace().next().unwrap_or(command);
-        
-        // For valid commands, we record them in the correction frequency
-        // This helps improve suggestions based on commonly used commands
-        *self.correction_frequency.entry(base_command.to_string()).or_insert(0) += 1;
-        
-        // Optionally, we could record the full command and some other metadata
-        // But for now, just updating frequency is sufficient
-    }
-    
     /// Find a similar command with frequency bias
     pub fn find_similar_with_frequency(
         &self,
