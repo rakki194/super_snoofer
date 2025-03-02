@@ -8,6 +8,8 @@ use std::{
     io::Write,
 };
 
+const HISTORY_DISPLAY_LIMIT: usize = 20; // Default number of history entries to display
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     
@@ -28,12 +30,30 @@ fn main() -> Result<()> {
                 println!("Cache and learned corrections cleared successfully! 🐺");
                 exit(0);
             }
+            "--history" => {
+                display_command_history()?;
+                exit(0);
+            }
+            "--frequent-typos" => {
+                display_frequent_typos()?;
+                exit(0);
+            }
+            "--frequent-corrections" => {
+                display_frequent_corrections()?;
+                exit(0);
+            }
+            "--clear-history" => {
+                let mut cache = super_snoofer::CommandCache::load()?;
+                cache.clear_history();
+                println!("Command history cleared successfully! 🐺");
+                exit(0);
+            }
             _ => {}
         }
     }
 
     if args.len() != 2 {
-        eprintln!("Usage: {} <command> | --reset_cache | --reset_memory", args[0]);
+        eprintln!("Usage: {} <command> | --reset_cache | --reset_memory | --history | --frequent-typos | --frequent-corrections | --clear-history", args[0]);
         exit(1);
     }
 
@@ -41,81 +61,167 @@ fn main() -> Result<()> {
     let mut cache = super_snoofer::CommandCache::load()?;
     cache.update()?;
 
-    if let Some(suggestion) = cache.find_similar(typed_command) {
+    // Use frequency-aware suggestion function
+    if let Some(suggestion) = cache.find_similar_with_frequency(typed_command) {
+        // Get frequency info if available
+        let frequency_info = if let Some(count) = cache.correction_frequency.get(&suggestion) {
+            if *count > 0 {
+                format!(" (used {} times)", count)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         // Check if the suggestion is a shell alias
         if let Some(alias_target) = cache.get_alias_target(&suggestion) {
             print!(
-                "Awoo! 🐺 Did you mean `{}` (alias for `{}`)? *wags tail* (Y/n/c) ",
+                "Awoo! 🐺 Did you mean `{}`{} (alias for `{}`)? *wags tail* (Y/n/c) ",
                 suggestion.bright_green(),
+                frequency_info,
                 alias_target.bright_blue()
             );
         } else {
             print!(
-                "Awoo! 🐺 Did you mean `{}`? *wags tail* (Y/n/c) ",
-                suggestion.bright_green()
+                "Awoo! 🐺 Did you mean `{}`{}? *wags tail* (Y/n/c) ",
+                suggestion.bright_green(),
+                frequency_info
             );
         }
         std::io::stdout().flush()?;
 
-        let mut response = String::new();
-        std::io::stdin().read_line(&mut response)?;
-        let response = response.trim().to_lowercase();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let response = input.trim().to_lowercase();
 
         match response.as_str() {
-            "n" => {
-                eprintln!("Command '{}' not sniffed! 🐺", typed_command.bright_red());
-                exit(1);
+            "" | "y" | "yes" => {
+                // Record the correction in history
+                cache.record_correction(typed_command, &suggestion);
+
+                println!("Running suggested command...");
+                
+                // Get any arguments after the first one from the original command
+                let args_from_command: Vec<String> = env::args().skip(2).collect();
+                
+                let status = Command::new("sh")
+                    .arg("-c")
+                    .arg(format!("{} {}", suggestion, args_from_command.join(" ")))
+                    .status()?;
+
+                exit(status.code().unwrap_or(1));
             }
-            "c" => {
+            "c" | "correct" => {
                 print!("What's the correct command? ");
                 std::io::stdout().flush()?;
                 
-                let mut correct_command = String::new();
-                std::io::stdin().read_line(&mut correct_command)?;
-                let correct_command = correct_command.trim();
-
-                if !correct_command.is_empty() {
-                    if let Err(e) = cache.learn_correction(typed_command, correct_command) {
-                        eprintln!("Error learning correction: {e}");
-                        exit(1);
-                    }
+                let mut correction = String::new();
+                std::io::stdin().read_line(&mut correction)?;
+                let correction = correction.trim();
+                
+                if correction.is_empty() {
+                    println!("No correction provided. Exiting.");
+                    exit(1);
+                }
+                
+                if !cache.contains(correction) {
+                    println!("Warning: '{}' is not a known command.", correction);
                     
-                    // Double-check the correction was actually saved by verifying it's in the cache
-                    let verification_cache = super_snoofer::CommandCache::load()?;
-                    if verification_cache.find_similar(typed_command) == Some(correct_command.to_string()) {
-                        println!("Got it! 🐺 I'll remember that '{typed_command}' means '{correct_command}'");
-                        
-                        // Execute the correct command
-                        let shell = env::var("SHELL").unwrap_or_else(|_| String::from("/bin/bash"));
-                        let status = Command::new(&shell)
-                            .arg("-c")
-                            .arg(correct_command)
-                            .status()
-                            .with_context(|| format!("Failed to execute command: {correct_command}"))?;
-                        exit(status.code().unwrap_or(1));
-                    } else {
-                        eprintln!("Failed to remember correction. Something might be wrong with the cache file.");
+                    print!("Continue anyway? (y/N) ");
+                    std::io::stdout().flush()?;
+                    
+                    let mut confirm = String::new();
+                    std::io::stdin().read_line(&mut confirm)?;
+                    
+                    if !["y", "yes"].contains(&confirm.trim().to_lowercase().as_str()) {
+                        println!("Aborting correction.");
                         exit(1);
                     }
                 }
+                
+                // Record the manual correction in history
+                cache.record_correction(typed_command, correction);
+                
+                cache.learn_correction(typed_command, correction)?;
+                println!("Got it! 🐺 I'll remember that '{}' means '{}'", typed_command, correction);
+                
+                let args_from_command: Vec<String> = env::args().skip(2).collect();
+                let status = Command::new("sh")
+                    .arg("-c")
+                    .arg(format!("{} {}", correction, args_from_command.join(" ")))
+                    .status()?;
+                
+                exit(status.code().unwrap_or(1));
             }
             _ => {
-                println!("Running suggested command...");
-                
-                let shell = env::var("SHELL").unwrap_or_else(|_| String::from("/bin/bash"));
-                let status = Command::new(&shell)
-                    .arg("-c")
-                    .arg(&suggestion)
-                    .status()
-                    .with_context(|| format!("Failed to execute command: {suggestion}"))?;
-                exit(status.code().unwrap_or(1));
+                println!("Command '{}' not found! 🐺", typed_command);
+                exit(127); // Standard "command not found" exit code
             }
         }
     } else {
-        eprintln!("Command '{}' not sniffed! 🐺", typed_command.bright_red());
+        println!("Command '{}' not found! 🐺", typed_command);
+        exit(127); // Standard "command not found" exit code
     }
+}
 
-    exit(1);
+/// Display command correction history
+fn display_command_history() -> Result<()> {
+    let cache = super_snoofer::CommandCache::load()?;
+    let history = cache.get_command_history(HISTORY_DISPLAY_LIMIT);
+    
+    if history.is_empty() {
+        println!("🐺 No command history found yet.");
+        return Ok(());
+    }
+    
+    println!("🐺 Your recent command corrections:");
+    for (i, entry) in history.iter().enumerate() {
+        println!("{}. {} → {} ({})", 
+            i + 1, 
+            entry.typo.bright_red(), 
+            entry.correction.bright_green(),
+            humantime::format_rfc3339(entry.timestamp)
+        );
+    }
+    
+    Ok(())
+}
+
+/// Display most frequent typos
+fn display_frequent_typos() -> Result<()> {
+    let cache = super_snoofer::CommandCache::load()?;
+    let typos = cache.get_frequent_typos(HISTORY_DISPLAY_LIMIT);
+    
+    if typos.is_empty() {
+        println!("🐺 No typo history found yet.");
+        return Ok(());
+    }
+    
+    println!("🐺 Your most common typos:");
+    for (i, (typo, count)) in typos.iter().enumerate() {
+        println!("{}. {} ({} times)", i + 1, typo.bright_red(), count);
+    }
+    
+    Ok(())
+}
+
+/// Display most frequent corrections
+fn display_frequent_corrections() -> Result<()> {
+    let cache = super_snoofer::CommandCache::load()?;
+    let corrections = cache.get_frequent_corrections(HISTORY_DISPLAY_LIMIT);
+    
+    if corrections.is_empty() {
+        println!("🐺 No correction history found yet.");
+        return Ok(());
+    }
+    
+    println!("🐺 Your most frequently used corrections:");
+    for (i, (correction, count)) in corrections.iter().enumerate() {
+        println!("{}. {} ({} times)", i + 1, correction.bright_green(), count);
+    }
+    
+    Ok(())
 }
 
 #[cfg(test)]

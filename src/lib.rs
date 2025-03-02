@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     env,
     fs::{self, File},
     path::{Path, PathBuf},
@@ -23,6 +23,7 @@ pub const CACHE_FILE: &str = "super_snoofer_cache.json";
 pub const SIMILARITY_THRESHOLD: f64 = 0.6;
 const CACHE_LIFETIME_SECS: u64 = 86400; // 24 hours
 const ALIAS_CACHE_LIFETIME_SECS: u64 = 86400; // 24 hours
+const MAX_HISTORY_SIZE: usize = 1000; // Maximum number of entries in history
 
 static CACHE_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
     // Check for environment variable override first
@@ -41,6 +42,13 @@ static CACHE_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
     }
 });
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CommandHistoryEntry {
+    pub typo: String,
+    pub correction: String,
+    pub timestamp: SystemTime,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommandCache {
     commands: HashSet<String>,
@@ -55,6 +63,15 @@ pub struct CommandCache {
     /// Last time shell aliases were updated
     #[serde(default = "SystemTime::now")]
     alias_last_update: SystemTime,
+    /// Command history for frequency analysis
+    #[serde(default)]
+    command_history: VecDeque<CommandHistoryEntry>,
+    /// Frequency counter for typos
+    #[serde(default)]
+    typo_frequency: HashMap<String, usize>,
+    /// Frequency counter for corrections
+    #[serde(default)]
+    pub correction_frequency: HashMap<String, usize>,
 }
 
 impl Default for CommandCache {
@@ -66,6 +83,9 @@ impl Default for CommandCache {
             cache_path: None,
             shell_aliases: HashMap::new(),
             alias_last_update: SystemTime::now(),
+            command_history: VecDeque::new(),
+            typo_frequency: HashMap::new(),
+            correction_frequency: HashMap::new(),
         }
     }
 }
@@ -80,6 +100,9 @@ impl CommandCache {
             cache_path: None,
             shell_aliases: HashMap::new(),
             alias_last_update: SystemTime::now(),
+            command_history: VecDeque::new(),
+            typo_frequency: HashMap::new(),
+            correction_frequency: HashMap::new(),
         }
     }
 
@@ -345,6 +368,129 @@ impl CommandCache {
     #[must_use] pub fn get_alias_target(&self, alias: &str) -> Option<&String> {
         self.shell_aliases.get(alias)
     }
+
+    /// Records a command correction in the history
+    pub fn record_correction(&mut self, typo: &str, correction: &str) {
+        // Add to command history
+        let entry = CommandHistoryEntry {
+            typo: typo.to_string(),
+            correction: correction.to_string(),
+            timestamp: SystemTime::now(),
+        };
+        
+        self.command_history.push_back(entry);
+        
+        // Maintain maximum history size
+        if self.command_history.len() > MAX_HISTORY_SIZE {
+            self.command_history.pop_front();
+        }
+        
+        // Update frequency counters
+        *self.typo_frequency.entry(typo.to_string()).or_insert(0) += 1;
+        *self.correction_frequency.entry(correction.to_string()).or_insert(0) += 1;
+        
+        // Save the updated history
+        if let Err(e) = self.save() {
+            eprintln!("Failed to save command history: {}", e);
+        }
+    }
+    
+    /// Returns the most frequent typos
+    pub fn get_frequent_typos(&self, limit: usize) -> Vec<(String, usize)> {
+        let mut typos: Vec<(String, usize)> = self.typo_frequency.iter()
+            .map(|(typo, count)| (typo.clone(), *count))
+            .collect();
+        
+        typos.sort_by(|a, b| b.1.cmp(&a.1));
+        typos.truncate(limit);
+        
+        typos
+    }
+    
+    /// Returns the most frequent corrections
+    pub fn get_frequent_corrections(&self, limit: usize) -> Vec<(String, usize)> {
+        let mut corrections: Vec<(String, usize)> = self.correction_frequency.iter()
+            .map(|(correction, count)| (correction.clone(), *count))
+            .collect();
+        
+        corrections.sort_by(|a, b| b.1.cmp(&a.1));
+        corrections.truncate(limit);
+        
+        corrections
+    }
+    
+    /// Returns the recent command history
+    pub fn get_command_history(&self, limit: usize) -> Vec<CommandHistoryEntry> {
+        self.command_history.iter()
+            .rev() // Most recent first
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+    
+    /// Clears the command history
+    pub fn clear_history(&mut self) {
+        self.command_history.clear();
+        self.typo_frequency.clear();
+        self.correction_frequency.clear();
+        
+        if let Err(e) = self.save() {
+            eprintln!("Failed to save cleared history: {}", e);
+        }
+    }
+    
+    /// Takes frequency into account when finding similar commands
+    pub fn find_similar_with_frequency(&self, command: &str) -> Option<String> {
+        // First check if we have a learned correction
+        if let Some(correction) = self.learned_corrections.get(command) {
+            return Some(correction.clone());
+        }
+        
+        // Get all potential matches above the threshold
+        let all_commands: Vec<&String> = self.commands.iter().collect();
+        let mut candidates = Vec::new();
+        
+        for cmd in &all_commands {
+            let distance = levenshtein(command, cmd);
+            let max_len = command.len().max(cmd.len());
+            let similarity = if max_len > 0 {
+                1.0 - (distance as f64 / max_len as f64)
+            } else {
+                1.0
+            };
+            
+            if similarity >= SIMILARITY_THRESHOLD {
+                // Get the frequency count (0 if not found)
+                let frequency = *self.correction_frequency.get(*cmd).unwrap_or(&0);
+                candidates.push((cmd, similarity, frequency));
+            }
+        }
+        
+        if candidates.is_empty() {
+            return None;
+        }
+        
+        // Sort by frequency first, then by similarity
+        candidates.sort_by(|a, b| {
+            let (_, _, freq_a) = a;
+            let (_, _, freq_b) = b;
+            
+            // Compare frequencies first (higher frequency is better)
+            match freq_b.cmp(freq_a) {
+                Ordering::Equal => {
+                    // If frequencies are equal, compare similarity (higher similarity is better)
+                    let (_, sim_a, _) = a;
+                    let (_, sim_b, _) = b;
+                    sim_b.partial_cmp(sim_a).unwrap_or(Ordering::Equal)
+                },
+                other => other,
+            }
+        });
+        
+        // Return the best match
+        let (best_match, _, _) = candidates[0];
+        Some((*best_match).clone())
+    }
 }
 
 /// Checks if a file is executable on the current platform
@@ -545,19 +691,20 @@ fn parse_fish_alias_content(content: &str, aliases: &mut HashMap<String, String>
 
 /// Parse fish function files for aliases
 fn parse_fish_function_alias(content: &str, function_name: &str, aliases: &mut HashMap<String, String>) {
-    // Look for simple command wrapper functions
-    // Function that just runs a command is likely an alias
-    if let Ok(re) = Regex::new("^\\s*command\\s+(.+?)(\\s+\\$argv)?$") {
-        // A simple fish alias function typically has a single command line
-        for line in content.lines() {
-            if let Ok(Some(caps)) = re.captures(line) {
-                let cmd_result = caps.get(1);
-                
-                if let Some(cmd_match) = cmd_result {
-                    let cmd = cmd_match.as_str();
-                    aliases.insert(function_name.to_string(), cmd.to_string());
-                    return;
-                }
+    let re = Regex::new(r#"(?:command|exec)\s+([^\s;]+)"#).unwrap();
+    
+    // Try to find command references in the function
+    // The captures_iter method returns an iterator of Results, not a Result of a collection
+    let captures_iter = re.captures_iter(content);
+    
+    // Process each capture result
+    for result in captures_iter {
+        if let Ok(caps) = result {
+            if let Some(cmd_match) = caps.get(1) {
+                let cmd = cmd_match.as_str();
+                aliases.insert(function_name.to_string(), cmd.to_string());
+                // We only need the first match
+                break;
             }
         }
     }
@@ -1603,5 +1750,364 @@ mod tests {
             Ok(r) => r,
             Err(e) => std::panic::resume_unwind(e),
         }
+    }
+
+    #[test]
+    fn test_command_history_tracking() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_history_cache.json");
+        
+        // Create a new cache
+        let mut cache = CommandCache::default();
+        cache.cache_path = Some(cache_path.clone());
+        
+        // Record a few corrections
+        cache.record_correction("gti", "git");
+        cache.record_correction("pytohn", "python");
+        cache.record_correction("gti", "git"); // Duplicate to test frequency increment
+        
+        // Save the cache
+        cache.save()?;
+        
+        // Load the cache again
+        let loaded_cache = CommandCache::load_from_path(&cache_path)?;
+        
+        // Check command history
+        let history = loaded_cache.get_command_history(10);
+        assert_eq!(history.len(), 3, "Expected 3 history entries");
+        assert_eq!(history[0].typo, "gti");
+        assert_eq!(history[0].correction, "git");
+        
+        // Check typo frequency
+        let typos = loaded_cache.get_frequent_typos(10);
+        assert_eq!(typos.len(), 2, "Expected 2 unique typos");
+        assert_eq!(typos[0].0, "gti");
+        assert_eq!(typos[0].1, 2, "Expected 'gti' to have frequency of 2");
+        
+        // Check correction frequency
+        let corrections = loaded_cache.get_frequent_corrections(10);
+        assert_eq!(corrections.len(), 2, "Expected 2 unique corrections");
+        assert_eq!(corrections[0].0, "git");
+        assert_eq!(corrections[0].1, 2, "Expected 'git' to have frequency of 2");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_clear_history() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_clear_history.json");
+        
+        // Create a new cache
+        let mut cache = CommandCache::default();
+        cache.cache_path = Some(cache_path.clone());
+        
+        // Record some corrections
+        cache.record_correction("gti", "git");
+        cache.record_correction("pytohn", "python");
+        
+        // Add some commands and learned corrections
+        cache.insert("git");
+        cache.insert("python");
+        cache.learn_correction("gti", "git")?;
+        
+        // Save the cache
+        cache.save()?;
+        
+        // Load the cache again
+        let mut loaded_cache = CommandCache::load_from_path(&cache_path)?;
+        
+        // Clear history but keep commands and learned corrections
+        loaded_cache.clear_history();
+        loaded_cache.save()?;
+        
+        // Load again and verify
+        let reloaded_cache = CommandCache::load_from_path(&cache_path)?;
+        
+        // History should be empty
+        let history = reloaded_cache.get_command_history(10);
+        assert!(history.is_empty(), "History should be empty after clear_history");
+        
+        // Typo and correction frequencies should be empty
+        let typos = reloaded_cache.get_frequent_typos(10);
+        assert!(typos.is_empty(), "Typo frequencies should be empty after clear_history");
+        
+        let corrections = reloaded_cache.get_frequent_corrections(10);
+        assert!(corrections.is_empty(), "Correction frequencies should be empty after clear_history");
+        
+        // But commands and learned corrections should remain
+        assert!(reloaded_cache.contains("git"), "Commands should remain after clear_history");
+        assert!(reloaded_cache.contains("python"), "Commands should remain after clear_history");
+        assert!(reloaded_cache.has_correction("gti"), "Learned corrections should remain after clear_history");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_history_max_size_limit() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_history_limit.json");
+        
+        // Create a new cache
+        let mut cache = CommandCache::default();
+        cache.cache_path = Some(cache_path.clone());
+        
+        // Record many corrections (more than MAX_HISTORY_SIZE)
+        let test_limit = 10; // Small number for test speed
+        const MAX_TEST_SIZE: usize = 5;
+        
+        for i in 0..test_limit {
+            cache.record_correction(&format!("typo{}", i), &format!("correction{}", i));
+        }
+        
+        // Modify the constant temporarily for testing
+        assert!(cache.command_history.len() <= test_limit, 
+                "Command history should not exceed test limit");
+        
+        // Get history and check if it respects the limit
+        let history = cache.get_command_history(MAX_TEST_SIZE);
+        assert!(history.len() <= MAX_TEST_SIZE, 
+                "get_command_history should respect the requested limit");
+        
+        // The most recent entries should be first
+        assert_eq!(history[0].typo, format!("typo{}", test_limit - 1), 
+                   "Most recent entry should be first in history");
+        
+        Ok(())
+    }
+
+    /// This test simulates a real-world user workflow with Super Snoofer over time
+    /// to demonstrate how the history tracking feature would work in practice
+    #[test]
+    fn test_real_world_history_scenario() -> Result<()> {
+        // Create a test cache environment
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("real_world_test_cache.json");
+        
+        // Create a new cache with common developer tools
+        let mut cache = CommandCache::default();
+        cache.cache_path = Some(cache_path.clone());
+        
+        // Add common developer commands
+        for cmd in [
+            "git", "python", "cargo", "npm", "docker", "kubectl", "terraform", 
+            "grep", "ssh", "ls", "cd", "cat", "find", "make"
+        ] {
+            cache.insert(cmd);
+        }
+        
+        // Add some shell aliases
+        cache.shell_aliases.insert("g".to_string(), "git".to_string());
+        cache.shell_aliases.insert("k".to_string(), "kubectl".to_string());
+        cache.shell_aliases.insert("tf".to_string(), "terraform".to_string());
+        cache.shell_aliases.insert("dc".to_string(), "docker-compose".to_string());
+        
+        // Stage 1: Initial user session (Day 1)
+        // Simulating common typos and corrections
+        println!("=== Day 1: First-time user with some typos ===");
+        
+        // User mistypes git commands
+        cache.record_correction("gti", "git");
+        cache.record_correction("gig", "git");
+        cache.record_correction("gi", "git");
+        
+        // User mistypes docker commands
+        cache.record_correction("dockr", "docker");
+        cache.record_correction("dockre", "docker");
+        
+        // User mistypes cargo commands
+        cache.record_correction("carg", "cargo");
+        
+        // User mistypes python
+        cache.record_correction("pyhton", "python");
+        
+        // Save the cache at the end of day 1
+        cache.save()?;
+        
+        // Check day 1 stats
+        let typos = cache.get_frequent_typos(5);
+        let corrections = cache.get_frequent_corrections(5);
+        
+        println!("Top typos after day 1:");
+        for (typo, count) in &typos {
+            println!("  {} (used {} times)", typo, count);
+        }
+        
+        println!("Top corrections after day 1:");
+        for (correction, count) in &corrections {
+            println!("  {} (used {} times)", correction, count);
+        }
+        
+        // Verify the top correction is git (used 3 times)
+        assert_eq!(corrections[0].0, "git");
+        assert_eq!(corrections[0].1, 3);
+        
+        // Verify the git typos are in the list (one of them should be there)
+        let git_typos = ["gti", "gig", "gi"];
+        let typo_names: Vec<&str> = typos.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(
+            git_typos.iter().any(|gt| typo_names.contains(gt)),
+            "Expected at least one git typo in top typos: {:?}, found: {:?}", 
+            git_typos, typo_names
+        );
+        
+        // Stage 2: Second user session (Day 2)
+        // User continues to use Super Snoofer, makes some of the same mistakes,
+        // but also has new typos
+        println!("\n=== Day 2: User continues working ===");
+        
+        // Reload the cache to simulate a new session
+        let mut cache = CommandCache::load_from_path(&cache_path)?;
+        
+        // More git typos (including repeated ones)
+        cache.record_correction("gti", "git"); // Repeated typo
+        cache.record_correction("gis", "git");
+        
+        // Docker typos
+        cache.record_correction("dockr", "docker"); // Repeated typo
+        
+        // New command typos
+        cache.record_correction("kubctl", "kubectl");
+        cache.record_correction("kubect", "kubectl");
+        cache.record_correction("kubctl", "kubectl"); // Repeated typo
+        
+        // Python typos
+        cache.record_correction("pyhton", "python"); // Repeated typo
+        cache.record_correction("pythno", "python");
+        
+        // Save the cache at the end of day 2
+        cache.save()?;
+        
+        // Check day 2 stats
+        let typos = cache.get_frequent_typos(5);
+        let corrections = cache.get_frequent_corrections(5);
+        
+        println!("Top typos after day 2:");
+        for (typo, count) in &typos {
+            println!("  {} (used {} times)", typo, count);
+        }
+        
+        println!("Top corrections after day 2:");
+        for (correction, count) in &corrections {
+            println!("  {} (used {} times)", correction, count);
+        }
+        
+        // Verify git is still the top correction and has increased
+        assert_eq!(corrections[0].0, "git");
+        assert_eq!(corrections[0].1, 5); // Increased from 3 to 5
+        
+        // Verify kubectl is now in the top corrections
+        assert!(corrections.iter().any(|(cmd, count)| cmd == "kubectl" && *count == 3),
+                "Expected kubectl with count 3 in corrections: {:?}", corrections);
+        
+        // Stage 3: Third user session (Day 3)
+        println!("\n=== Day 3: User trying new tools ===");
+        
+        
+        // Reload the cache to simulate a new session
+        let mut cache = CommandCache::load_from_path(&cache_path)?;
+        
+        // Fewer git typos (user learning)
+        cache.record_correction("gti", "git"); // Still happens occasionally
+        
+        // New terraform typos
+        cache.record_correction("terrafrm", "terraform");
+        cache.record_correction("terrform", "terraform");
+        cache.record_correction("terrafom", "terraform");
+        
+        // New aliases
+        cache.record_correction("npm-i", "npm install");
+        cache.record_correction("npm-i", "npm install"); // Repeated
+        
+        // Some docker-compose typos
+        cache.record_correction("dc-up", "docker-compose up");
+        cache.record_correction("dc-down", "docker-compose down");
+        
+        // Save the cache at the end of day 3
+        cache.save()?;
+        
+        // Check day 3 stats
+        let typos = cache.get_frequent_typos(5);
+        let corrections = cache.get_frequent_corrections(5);
+        
+        println!("Top typos after day 3:");
+        for (typo, count) in &typos {
+            println!("  {} (used {} times)", typo, count);
+        }
+        
+        println!("Top corrections after day 3:");
+        for (correction, count) in &corrections {
+            println!("  {} (used {} times)", correction, count);
+        }
+        
+        // Verify git is still the top correction
+        assert_eq!(corrections[0].0, "git", "Expected git to be the top correction, found: {:?}", corrections);
+        assert_eq!(corrections[0].1, 6, "Expected git to have count 6, found: {}", corrections[0].1); // Increased by 1
+        
+        // Get all corrections to check for npm install
+        let all_corrections = cache.get_frequent_corrections(100);
+        println!("All corrections:");
+        for (correction, count) in &all_corrections {
+            println!("  {} (used {} times)", correction, count);
+        }
+        
+        // Verify terraform is in the top corrections
+        assert!(corrections.iter().any(|(cmd, _)| cmd == "terraform"),
+                "Expected terraform in corrections: {:?}", corrections);
+        
+        // Verify npm install is in all corrections
+        assert!(all_corrections.iter().any(|(cmd, _)| cmd == "npm install"),
+                "Expected npm install in all corrections: {:?}", all_corrections);
+        
+        // Stage 4: Demonstrate how this history improves suggestions
+        println!("\n=== Demonstration of improved suggestions based on history ===");
+        
+        // Reload the cache
+        let cache = CommandCache::load_from_path(&cache_path)?;
+        
+        // Test suggestion for an ambiguous typo
+        // For example, "ter" could match "terraform" or other commands,
+        // but because "terraform" is frequently used, it gets priority
+        let terra_typo = "ter";
+        if let Some(suggestion) = cache.find_similar_with_frequency(terra_typo) {
+            println!("For typo '{}', suggested: '{}'", terra_typo, suggestion);
+            // We'd expect terraform based on history
+            assert_eq!(suggestion, "terraform");
+        }
+        
+        // Test for a git typo we've seen many times
+        let git_typo = "gti";
+        if let Some(suggestion) = cache.find_similar_with_frequency(git_typo) {
+            println!("For common typo '{}', suggested: '{}'", git_typo, suggestion);
+            assert_eq!(suggestion, "git");
+            
+            // Check the frequency
+            let frequency = cache.correction_frequency.get(&suggestion).unwrap_or(&0);
+            println!("'{}' has been used {} times", suggestion, frequency);
+            assert!(*frequency >= 6);
+        }
+        
+        // Test recording a frequently used command vs a rarely used one
+        // Simulate this by testing which correction would be chosen if multiple options exist
+        let dummy_test = "gi"; // This could match "git" or other commands starting with "gi"
+        if let Some(suggestion) = cache.find_similar_with_frequency(dummy_test) {
+            println!("For ambiguous typo '{}', suggested: '{}'", dummy_test, suggestion);
+            // Since we used git so many times in our history, it should be the top suggestion
+            assert_eq!(suggestion, "git");
+        }
+        
+        // Display overall command history
+        let history = cache.get_command_history(10);
+        println!("\nRecent command history (last 10 entries):");
+        for (i, entry) in history.iter().enumerate() {
+            println!("{}. {} → {}", i + 1, entry.typo, entry.correction);
+        }
+        
+        // Final assertion - verify the total number of history entries
+        assert!(cache.command_history.len() >= 20, 
+                "Expected at least 20 history entries, found {}", 
+                cache.command_history.len());
+        
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
 # 🐺 Super Snoofer
 
-A fuzzy command finder for shells that suggests and executes similar commands when a typo is made. When you mistype a command, Super Snoofer will suggest the closest matching command and offer to execute it for you.
+A fuzzy command finder for shells that suggests and executes similar commands when a typo is made. When you mistype a command, Super Snoofer will suggest the closest matching command and offer to execute it for you. Super Snoofer is a good boy and will try to learn from your mistakes.
 
 ```plaintext
 $ gti status
@@ -311,15 +311,49 @@ Super Snoofer now detects and includes shell aliases in its suggestions:
 - Shows both the alias name and the command it represents
 - Provides fuzzy matching for aliases just like regular commands
 
-Example with aliases:
+#### Alias Matching Examples
+
+Here are some useful examples of how Super Snoofer matches and suggests aliases:
 
 ```bash
-# When you type a typo of an alias
-$ dokcer compose up
-Awoo! 🐺 Did you mean `docker` (alias for `podman`)? *wags tail* (Y/n/c) y
-Running suggested command...
+# Example 1: Mistyped alias corrected to original alias
+$ kk stutus                  # Where kk is an alias for kubectl
+Awoo! 🐺 Did you mean `kk` (alias for `kubectl`)? *wags tail* (Y/n/c) y
+Running suggested command: kubectl status
 [command output follows...]
+
+# Example 2: Mistyped alias suggesting multiple possibilities
+$ dc ps                      # When you have both 'dc' and 'dco' as aliases
+Awoo! 🐺 Did you mean `dc` (alias for `docker-compose`)? *wags tail* (Y/n/c) y
+Running suggested command: docker-compose ps
+[command output follows...]
+
+# Example 3: Related aliases for common commands
+$ giff                       # When you have git-related aliases
+Awoo! 🐺 Did you mean `giff` (alias for `git diff --color`)? *wags tail* (Y/n/c) y
+[git diff output follows...]
+
+# Example 4: Learning a correction for a complex alias
+$ dkr-rmall
+Awoo! 🐺 Did you mean `dkr` (alias for `docker`)? *wags tail* (Y/n/c) c
+What's the correct command? drm-all
+Got it! 🐺 I'll remember that 'dkr-rmall' means 'drm-all'
+[docker remove all containers output follows...]
+
+# Example 5: Nested alias resolution
+$ gs                         # Where gs is an alias for 'git status'
+Awoo! 🐺 Did you mean `gs` (alias for `git status`)? *wags tail* (Y/n/c) y
+[git status output follows...]
 ```
+
+#### Benefits of Alias Matching
+
+Alias matching in Super Snoofer provides several advantages:
+
+1. **Consistency** - Get suggestions for both commands and their aliases
+2. **Discoverability** - Learn about available aliases in your system
+3. **Convenience** - See what command an alias actually runs
+4. **Context awareness** - Suggestions are tailored to your shell setup
 
 Aliases are treated as first-class commands in Super Snoofer, meaning:
 
@@ -327,3 +361,62 @@ Aliases are treated as first-class commands in Super Snoofer, meaning:
 - The underlying command is shown in the suggestion
 - Aliases can be learned as corrections just like regular commands
 - Aliases are included in fuzzy matching searches
+
+## 📊 Command History & Frequency Analysis
+
+Super Snoofer now tracks the history of your command corrections and typos to provide smarter suggestions over time:
+
+- **Command history tracking** - Records all command corrections and queries
+- **Frequency analysis** - Suggests more commonly used commands first
+- **Pattern recognition** - Learns your specific typing patterns and common mistakes
+- **Personalized suggestions** - Tailors suggestions based on your command usage history
+
+### History Features
+
+```bash
+# View your command correction history
+$ super_snoofer --history
+🐺 Your recent command corrections:
+1. gti → git (17 times)
+2. pythno → python (8 times)
+3. docekr → docker (5 times)
+...
+
+# View most frequent typos
+$ super_snoofer --frequent-typos
+🐺 Your most common typos:
+1. gti (17 times)
+2. pythno (8 times)
+3. docekr (5 times)
+...
+
+# View most frequent corrections
+$ super_snoofer --frequent-corrections
+🐺 Your most frequently used corrections:
+1. git (22 times)
+2. python (15 times)
+3. docker (11 times)
+...
+
+# Clear your command history
+$ super_snoofer --clear-history
+Command history cleared successfully! 🐺
+```
+
+When making suggestions, Super Snoofer now prioritizes commands based on your usage history:
+
+```bash
+# When typing a command with multiple possible corrections
+$ gti
+Awoo! 🐺 Did you mean `git` (used 17 times)? *wags tail* (Y/n/c) y
+Running suggested command...
+```
+
+The history data is stored in your cache file and is used to:
+
+1. Prioritize frequently used commands in suggestions
+2. Identify patterns in your typing mistakes
+3. Improve suggestion accuracy over time
+4. Provide insights into your command usage habits
+
+This feature helps Super Snoofer become more personalized to your workflow the more you use it.
