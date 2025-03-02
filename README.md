@@ -22,6 +22,8 @@ Running suggested command...
 - 🔗 Shell alias detection and fuzzy matching for Bash, Zsh, and Fish
 - 🔮 Full command line correction including arguments and flags for well-known commands
 - 🕵️ History tracking that can be enabled or disabled for privacy
+- 🧩 Smart shell configuration for creating and managing aliases
+- 🔍 Enhanced typo correction for common commands like Git
 
 ## 📦 Installation
 
@@ -537,6 +539,35 @@ Awoo! 🐺 Did you mean `cargo build --release`? *wags tail* (Y/n/c) y
 Running suggested command...
 ```
 
+### Enhanced Typo Correction
+
+Super Snoofer v0.3.0 includes special handling for common Git command typos, such as:
+
+```bash
+# Common "status" typos
+$ gti statuus
+Awoo! 🐺 Did you mean `git status`? *wags tail* (Y/n/c) y
+Running suggested command...
+
+$ git satatus
+Awoo! 🐺 Did you mean `git status`? *wags tail* (Y/n/c) y
+Running suggested command...
+
+$ git statsu
+Awoo! 🐺 Did you mean `git status`? *wags tail* (Y/n/c) y
+Running suggested command...
+```
+
+The correction engine is especially tuned for:
+
+- Common Git operations (status, commit, push, pull)
+- Docker commands (run, build, ps)
+- Cargo commands (build, run, test)
+- npm commands (install, run)
+- kubectl commands
+
+Super Snoofer uses a combination of pattern matching, Levenshtein distance, and special case handling to provide highly accurate corrections for these common command patterns.
+
 ### Supported Commands
 
 Super Snoofer includes built-in knowledge about these common commands and their arguments:
@@ -558,3 +589,68 @@ When you enter a command with typos:
 5. It presents the fully corrected command line for your approval
 
 This works best with common CLI tools, but will fall back to simple command correction for other commands.
+
+## 🧩 Smart Shell Configuration
+
+Super Snoofer includes intelligent shell detection and configuration management features that make it easy to add aliases and integrate with your system:
+
+### Automatic Shell Detection
+
+Super Snoofer can detect your current shell environment and provide appropriate configuration instructions:
+
+```bash
+# When suggesting an alias
+$ super_snoofer --suggest
+You've mistyped 'gti' 17 times! Let's create an alias for that.
+
+Suggested alias: g → git
+
+To add this alias to your shell configuration:
+
+alias g='git'
+
+Would you like me to add this alias to your Zsh shell configuration? (y/N) y
+Adding alias to /home/user/.zshrc
+
+Added alias to your Zsh configuration! 🐺 Please run 'source /home/user/.zshrc' to use it.
+```
+
+### Supported Shells
+
+Super Snoofer automatically detects and supports:
+
+- 🐚 **Bash** - Configures `.bashrc`
+- 🔮 **Zsh** - Configures `.zshrc`
+- 🐟 **Fish** - Configures `config.fish`
+- 💻 **PowerShell** - Configures profile script
+- 🔵 **Nushell** - Configures `config.nu`
+- 🐚 **Korn Shell** - Configures `.kshrc`
+- 🔄 **C Shell/TCSH** - Configures `.cshrc` or `.tcshrc`
+- 🪟 **Windows Command Prompt** - Configures doskey batch file
+
+### Configuration Files
+
+Super Snoofer creates appropriate shell-specific alias syntax based on your shell:
+
+| Shell | Configuration File | Alias Format |
+|-------|-------------------|--------------|
+| Bash | ~/.bashrc | `alias g='git'` |
+| Zsh | ~/.zshrc | `alias g='git'` |
+| Fish | ~/.config/fish/config.fish | `alias g 'git'` |
+| PowerShell | ~/Documents/PowerShell/Microsoft.PowerShell_profile.ps1 | `Set-Alias -Name g -Value git` |
+| Nushell | ~/.config/nushell/config.nu | `alias g = git` |
+| Korn Shell | ~/.kshrc | `alias g='git'` |
+| C Shell/TCSH | ~/.cshrc or ~/.tcshrc | `alias g 'git'` |
+| Windows CMD | %USERPROFILE%\doskey.bat | `doskey g=git` |
+
+### Shell Integration With Auto-Setup
+
+Super Snoofer can not only suggest aliases but also handle the entire configuration process for you:
+
+1. Detects your current shell environment automatically
+2. Creates appropriate configuration files if they don't exist
+3. Adds shell-specific syntax for aliases and functions
+4. Preserves existing content in configuration files
+5. Suggests reload commands after configuration changes
+
+This makes it simple to integrate Super Snoofer with your workflow without needing to remember shell-specific configuration details.
