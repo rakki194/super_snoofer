@@ -72,7 +72,7 @@ impl Default for CommandCache {
 
 impl CommandCache {
     /// Create a new empty cache
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             commands: HashSet::new(),
             learned_corrections: HashMap::new(),
@@ -319,12 +319,12 @@ impl CommandCache {
     }
 
     /// Check if a command exists in the cache
-    pub fn contains(&self, command: &str) -> bool {
+    #[must_use] pub fn contains(&self, command: &str) -> bool {
         self.commands.contains(command) || self.shell_aliases.contains_key(command)
     }
 
     /// Get closest matching command from the cache
-    pub fn get_closest_match(&self, command: &str, threshold: f64) -> Option<String> {
+    #[must_use] pub fn get_closest_match(&self, command: &str, threshold: f64) -> Option<String> {
         // Check if it's a shell alias first
         if self.shell_aliases.contains_key(command) {
             return Some(command.to_string());
@@ -338,11 +338,11 @@ impl CommandCache {
         // Fall back to fuzzy matching
         let all_commands: Vec<&String> = self.commands.iter().chain(self.shell_aliases.keys()).collect();
         
-        find_closest_match(command, &all_commands, threshold).map(|s| s.clone())
+        find_closest_match(command, &all_commands, threshold).cloned()
     }
 
     /// Get the command that an alias points to
-    pub fn get_alias_target(&self, alias: &str) -> Option<&String> {
+    #[must_use] pub fn get_alias_target(&self, alias: &str) -> Option<&String> {
         self.shell_aliases.get(alias)
     }
 }
@@ -396,7 +396,7 @@ fn parse_shell_aliases() -> HashMap<String, String> {
     aliases
 }
 
-/// Parse Bash aliases from .bashrc and .bash_aliases
+/// Parse Bash aliases from .bashrc and .`bash_aliases`
 fn parse_bash_aliases() -> Option<HashMap<String, String>> {
     let home = dirs::home_dir()?;
     let mut aliases = HashMap::new();
@@ -490,7 +490,7 @@ fn parse_fish_aliases() -> Option<HashMap<String, String>> {
         if let Ok(entries) = fs::read_dir(&functions_dir) {
             for entry in entries.filter_map(Result::ok) {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "fish") {
+                if path.extension().is_some_and(|ext| ext == "fish") {
                     if let Ok(content) = fs::read_to_string(&path) {
                         // Extract alias name from file name
                         if let Some(file_stem) = path.file_stem() {
@@ -688,7 +688,7 @@ fn find_closest_match<'a>(query: &str, options: &[&'a String], threshold: f64) -
 }
 
 /// Suggests a correction for a mistyped command based on fuzzy matching.
-pub fn suggest_correction(
+#[must_use] pub fn suggest_correction(
     cache: &CommandCache,
     command: &str,
     matching_threshold: f64,
@@ -984,10 +984,7 @@ mod tests {
             fs::create_dir_all(&unreadable_dir)?;
             
             // Only change permissions if we can
-            let can_change_perms = match fs::metadata(&unreadable_dir) {
-                Ok(_) => true,
-                Err(_) => false,
-            };
+            let can_change_perms = fs::metadata(&unreadable_dir).is_ok();
             
             if can_change_perms {
                 let mut perms = fs::metadata(&unreadable_dir)?.permissions();
@@ -1041,10 +1038,7 @@ mod tests {
             
             let link2_path = temp_dir.path().join("link2");
             // Use try_exists to check if symlink creation would fail due to existing links
-            let link2_exists = match link2_path.try_exists() {
-                Ok(exists) => exists,
-                Err(_) => false,
-            };
+            let link2_exists = link2_path.try_exists().unwrap_or(false);
             
             if !link2_exists {
                 // Create the symlink if it doesn't exist
@@ -1056,10 +1050,7 @@ mod tests {
             }
             
             let link1_path = temp_dir.path().join("link1");
-            let link1_exists = match link1_path.try_exists() {
-                Ok(exists) => exists,
-                Err(_) => false,
-            };
+            let link1_exists = link1_path.try_exists().unwrap_or(false);
             
             if !link1_exists {
                 // Create the symlink if it doesn't exist
