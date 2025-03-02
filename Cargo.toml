@@ -1,6 +1,6 @@
 [package]
 name = "super_snoofer"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["rakki194"]
 description = "A fuzzy command finder that suggests similar commands when a typo is made"
