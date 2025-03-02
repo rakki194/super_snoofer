@@ -1,10 +1,13 @@
+#![warn(clippy::all, clippy::pedantic)]
+
 use fancy_regex::Regex;
 use std::collections::HashMap;
-use std::hash::BuildHasher;
 use std::fs;
+use std::hash::BuildHasher;
 
 /// Parse shell aliases from various shell config files
-#[must_use] pub fn parse_shell_aliases() -> HashMap<String, String> {
+#[must_use]
+pub fn parse_shell_aliases() -> HashMap<String, String> {
     let mut aliases = HashMap::new();
 
     // Try to parse aliases from different shell config files
@@ -48,7 +51,10 @@ fn parse_bash_aliases() -> Option<HashMap<String, String>> {
 }
 
 /// Parse Bash/Zsh style alias definitions from content
-pub fn parse_bash_alias_content<S: BuildHasher>(content: &str, aliases: &mut HashMap<String, String, S>) {
+pub fn parse_bash_alias_content<S: BuildHasher>(
+    content: &str,
+    aliases: &mut HashMap<String, String, S>,
+) {
     // Regular expression for alias: alias name='command' or alias name="command"
     if let Ok(re) = Regex::new(r#"^\s*alias\s+([a-zA-Z0-9_-]+)=(['"])(.+?)\2"#) {
         for line in content.lines() {
@@ -135,7 +141,10 @@ fn parse_fish_aliases() -> Option<HashMap<String, String>> {
 }
 
 /// Parse aliases from fish config content
-fn parse_fish_alias_content<S: BuildHasher>(content: &str, aliases: &mut HashMap<String, String, S>) {
+fn parse_fish_alias_content<S: BuildHasher>(
+    content: &str,
+    aliases: &mut HashMap<String, String, S>,
+) {
     // Fish aliases can be defined as: alias name='command' or using functions
     // First try the alias command format
     if let Ok(re) = Regex::new(r#"^\s*alias\s+([a-zA-Z0-9_-]+)=(['"])(.+?)\2"#) {

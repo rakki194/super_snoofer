@@ -1,17 +1,15 @@
+#![warn(clippy::all, clippy::pedantic)]
+
 use log::debug;
 use std::{collections::HashSet, env, fs, path::Path};
-use walkdir::WalkDir;
 use strsim::normalized_levenshtein;
+use walkdir::WalkDir;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 /// Find the closest matching string in the given list
-pub fn find_closest_match<'a, S>(
-    query: &str,
-    options: &'a [S],
-    threshold: f64,
-) -> Option<&'a S>
+pub fn find_closest_match<'a, S>(query: &str, options: &'a [S], threshold: f64) -> Option<&'a S>
 where
     S: AsRef<str>,
 {
@@ -49,7 +47,8 @@ where
 }
 
 /// Calculate Levenshtein distance between two strings
-#[must_use] pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+#[must_use]
+pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let s1_len = s1.chars().count();
     let s2_len = s2.chars().count();
 
@@ -96,7 +95,8 @@ where
 }
 
 /// Calculate similarity between two strings
-#[must_use] pub fn calculate_similarity(a: &str, b: &str) -> f64 {
+#[must_use]
+pub fn calculate_similarity(a: &str, b: &str) -> f64 {
     // Handle case insensitivity by converting to lowercase
     let a_lower = a.to_lowercase();
     let b_lower = b.to_lowercase();
@@ -111,16 +111,16 @@ where
         if a == b {
             return 1.0;
         }
-        
+
         // For common typos like "gti" vs "git", be more lenient
         if (a == "gti" && b == "git") || (a == "git" && b == "gti") {
-            return 0.9;  // Very high similarity for this common typo
+            return 0.9; // Very high similarity for this common typo
         }
-        
+
         // For other short strings, use a specialized similarity measure
         let a_chars: Vec<char> = a.chars().collect();
         let b_chars: Vec<char> = b.chars().collect();
-        
+
         // Count matching characters in any position
         let mut matches = 0;
         for c1 in &a_chars {
@@ -128,7 +128,7 @@ where
                 matches += 1;
             }
         }
-        
+
         // Calculate similarity based on matches and length
         let total = a.len().max(b.len());
         if total > 0 {
@@ -154,7 +154,8 @@ where
 /// # Returns
 ///
 /// `true` if the file is executable by the current user, `false` otherwise
-#[must_use] pub fn is_executable(path: &Path) -> bool {
+#[must_use]
+pub fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         // Follow symlinks when checking permissions
@@ -298,12 +299,13 @@ pub fn get_path_commands() -> HashSet<String> {
 
 /// Remove trailing flags from an argument
 /// e.g. "file.txt:10" -> ("file.txt", ":10")
-#[must_use] pub fn remove_trailing_flags(arg: &str) -> (&str, String) {
+#[must_use]
+pub fn remove_trailing_flags(arg: &str) -> (&str, String) {
     // Handle flags that start after the argument
     if let Some(pos) = arg.find([':', '=', '@']) {
         let (base, flag) = arg.split_at(pos);
         return (base, flag.to_string());
     }
-    
+
     (arg, String::new())
 }
