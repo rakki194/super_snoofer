@@ -10,6 +10,8 @@ SUPER_SNOOFER_SUGGESTIONS_ENABLED=true  # Enable/disable real-time suggestions
 SUPER_SNOOFER_EARLY_SUGGESTIONS=true    # Enable/disable suggestions after first keypress
 SUPER_SNOOFER_FULL_COMPLETIONS=true     # Prioritize full command completions over partial ones
 SUPER_SNOOFER_TYPO_CORRECTION=true      # Prioritize typo correction when using Tab
+SUPER_SNOOFER_FUZZY_MATCHING=true
+SUPER_SNOOFER_FREQUENT_COMMANDS=true
 
 # Commands to exclude from auto-correction (space-separated)
 SUPER_SNOOFER_EXCLUDE_COMMANDS="vim vi nano emacs cd ls cat grep find curl wget"
@@ -21,6 +23,19 @@ __super_snoofer_running=false
 __super_snoofer_suggestion=""
 __super_snoofer_suggestion_displayed=false
 __super_snoofer_correction=""
+
+# Initialize variables (if not already set by user)
+: ${SUPER_SNOOFER_ENABLED:=true}
+: ${SUPER_SNOOFER_SUGGESTIONS_ENABLED:=true}
+: ${SUPER_SNOOFER_TYPO_CORRECTION:=true}
+: ${SUPER_SNOOFER_EARLY_COMPLETIONS:=true}
+: ${SUPER_SNOOFER_FULL_COMPLETIONS:=true}
+: ${SUPER_SNOOFER_COMPLETION_ENABLED:=true}
+: ${SUPER_SNOOFER_FUZZY_MATCHING:=true}
+: ${SUPER_SNOOFER_FREQUENT_COMMANDS:=true}
+
+# Initialize script load tracking variable
+: ${__SUPER_SNOOFER_LOADED:=false}
 
 # Helper to check if a command should be excluded
 __super_snoofer_should_exclude() {
@@ -90,15 +105,17 @@ __super_snoofer_check_command() {
   __super_snoofer_running=true
   
   # Check if the command needs correction
-  local corrected=$($SUPER_SNOOFER_CMD --check-command "$cmd" 2>/dev/null)
+  local corrected=""
+  corrected=$($SUPER_SNOOFER_CMD --check-command "$cmd" 2>/dev/null)
   local exit_code=$?
   
   # Reset flag
   __super_snoofer_running=false
   
   # If the command was corrected and different from the original
-  if [[ $exit_code -eq 0 ]] && [[ "$corrected" != "$cmd" ]]; then
-    echo -e "\033[0;33mCommand corrected: \033[0;32m$corrected\033[0m"
+  if [[ $exit_code -eq 0 && -n "$corrected" && "$corrected" != "$cmd" ]]; then
+    # Print correction message to stderr so it doesn't get added to the command buffer
+    echo -e "\033[0;33mCommand corrected: \033[0;32m$corrected\033[0m" >&2
     
     # Record the correction
     (
@@ -205,7 +222,8 @@ __super_snoofer_suggest() {
     if [[ "$SUPER_SNOOFER_TYPO_CORRECTION" == "true" && ${#cmd} -gt 2 ]]; then
       # Only check for typos in longer commands to avoid false corrections
       local corrected=$($SUPER_SNOOFER_CMD --check-command "$cmd" 2>/dev/null)
-      if [[ -n "$corrected" && "$corrected" != "$cmd" ]]; then
+      # Check if command succeeded and returned a non-empty result
+      if [[ $? -eq 0 && -n "$corrected" && "$corrected" != "$cmd" ]]; then
         __super_snoofer_correction="$corrected"
         # Use the correction as a suggestion
         suggestion="$corrected"
@@ -214,35 +232,49 @@ __super_snoofer_suggest() {
     
     # Continue with completions if no typo correction or if suggestion option enabled
     if [[ -z "$suggestion" || "$SUPER_SNOOFER_SUGGESTIONS_ENABLED" == "true" ]]; then
-      # Use different flag based on whether full completions are enabled
-      if [[ "$SUPER_SNOOFER_FULL_COMPLETIONS" == "true" ]]; then
-        # Request full command completion (try to complete to the end)
-        local full_suggestion=$($SUPER_SNOOFER_CMD --suggest-full-completion "$cmd" 2>/dev/null)
+      # Check for frequent commands first if enabled
+      if [[ "$SUPER_SNOOFER_FREQUENT_COMMANDS" == "true" ]]; then
+        # Get frequent command suggestions - capture stdout only, sending stderr to null
+        local cmd_output=""
+        cmd_output=$($SUPER_SNOOFER_CMD --suggest-frequent-command "$cmd" 2>/dev/null)
+        local exit_code=$?
         
-        # If no full completion available, fall back to regular completion
-        if [[ -n "$full_suggestion" && "$full_suggestion" != "$cmd" ]]; then
-          suggestion="$full_suggestion"
-        else
-          local partial_suggestion=$($SUPER_SNOOFER_CMD --suggest-completion "$cmd" 2>/dev/null)
-          if [[ -n "$partial_suggestion" && "$partial_suggestion" != "$cmd" ]]; then
-            suggestion="$partial_suggestion"
+        # Only process if command succeeded
+        if [[ $exit_code -eq 0 && -n "$cmd_output" ]]; then
+          local IFS=$'\n'
+          local -a frequent_suggestions=($cmd_output)
+          
+          # If we have frequent command suggestions, use the first one
+          if [[ ${#frequent_suggestions[@]} -gt 0 && -n "${frequent_suggestions[1]}" && "${frequent_suggestions[1]}" != "$cmd" ]]; then
+            suggestion="${frequent_suggestions[1]}"
           fi
-        fi
-      else
-        # Standard completion behavior
-        local partial_suggestion=$($SUPER_SNOOFER_CMD --suggest-completion "$cmd" 2>/dev/null)
-        if [[ -n "$partial_suggestion" && "$partial_suggestion" != "$cmd" ]]; then
-          suggestion="$partial_suggestion"
         fi
       fi
       
-      # Additionally, try to get a frequently used complete command (full history match)
-      if [[ "$SUPER_SNOOFER_FULL_COMPLETIONS" == "true" ]]; then
-        local frequent_cmd=$($SUPER_SNOOFER_CMD --suggest-frequent-command "$cmd" 2>/dev/null)
+      # If no frequent suggestion or not enabled, try full completion
+      if [[ -z "$suggestion" && "$SUPER_SNOOFER_FULL_COMPLETIONS" == "true" ]]; then
+        # Request full command completion (try to complete to the end)
+        local full_suggestion=""
+        full_suggestion=$($SUPER_SNOOFER_CMD --suggest-full-completion "$cmd" 2>/dev/null)
+        local exit_code=$?
         
-        # If we got a frequent command and it's longer than the current suggestion, use it instead
-        if [[ -n "$frequent_cmd" && "$frequent_cmd" != "$cmd" && ${#frequent_cmd} -gt ${#suggestion} ]]; then
-          suggestion="$frequent_cmd"
+        # Only use suggestion if command succeeded
+        if [[ $exit_code -eq 0 && -n "$full_suggestion" && "$full_suggestion" != "$cmd" ]]; then
+          suggestion="$full_suggestion"
+        else
+          # Try partial completion as fallback
+          local partial_suggestion=""
+          partial_suggestion=$($SUPER_SNOOFER_CMD --suggest-completion "$cmd" 2>/dev/null)
+          if [[ $? -eq 0 && -n "$partial_suggestion" && "$partial_suggestion" != "$cmd" ]]; then
+            suggestion="$partial_suggestion"
+          fi
+        fi
+      elif [[ -z "$suggestion" ]]; then
+        # Try regular completion if not using full completions
+        local partial_suggestion=""
+        partial_suggestion=$($SUPER_SNOOFER_CMD --suggest-completion "$cmd" 2>/dev/null)
+        if [[ $? -eq 0 && -n "$partial_suggestion" && "$partial_suggestion" != "$cmd" ]]; then
+          suggestion="$partial_suggestion"
         fi
       fi
     fi
@@ -355,8 +387,24 @@ __super_snoofer_zle_line_pre_redraw() {
 
 # Set up the preexec hook (runs before command execution)
 __super_snoofer_preexec() {
+  # Only process if Super Snoofer is enabled
+  if [[ "$SUPER_SNOOFER_ENABLED" != "true" ]]; then
+    return
+  fi
+  
   # Extract the actual command (remove leading spaces and environment variables)
   local cmd=$(echo "$1" | sed -E 's/^ +//; s/^[A-Za-z0-9_]+=([^ ]+ )*//g')
+  
+  # Skip if the command contains Super Snoofer error messages
+  if [[ "$cmd" == *"Command '--"* || "$cmd" == "Command "* || "$cmd" == *"Command corrected:"* ]]; then
+    # This is likely an error message or already corrected command, not a real command
+    return
+  fi
+  
+  # Skip if empty command
+  if [[ -z "$cmd" ]]; then
+    return
+  fi
   
   # Check and correct the command
   __super_snoofer_check_command "$cmd"
@@ -376,6 +424,25 @@ __super_snoofer_precmd() {
 
 # Function to be called before ZLE accepts a line
 __super_snoofer_accept_line() {
+  # Check if the command has corrections needed
+  local cmd="$BUFFER"
+  
+  # Skip if empty command or Super Snoofer is not enabled
+  if [[ -z "$cmd" ]] || [[ "$SUPER_SNOOFER_ENABLED" != "true" ]]; then
+    __super_snoofer_last_cmd="$cmd"
+    zle .accept-line
+    return
+  fi
+  
+  # Skip if the command contains "Command corrected:" already
+  if [[ "$cmd" == *"Command corrected:"* ]]; then
+    # Extract just the corrected command part
+    local corrected_cmd=$(echo "$cmd" | sed -E 's/.*Command corrected: ([^ ]+).*/\1/')
+    if [[ -n "$corrected_cmd" ]]; then
+      BUFFER="$corrected_cmd"
+    fi
+  fi
+  
   __super_snoofer_last_cmd="$BUFFER"
   zle .accept-line
 }
@@ -403,10 +470,67 @@ add-zsh-hook precmd __super_snoofer_precmd
 
 # Enable auto-completion if configured
 if [[ "$SUPER_SNOOFER_COMPLETION_ENABLED" == "true" ]]; then
+  # Ensure the completion system is loaded
+  autoload -Uz compinit
+  compinit -u
+
   # Source the auto-completion file if it exists
   if [[ -f ~/.zsh_super_snoofer_completions ]]; then
     source ~/.zsh_super_snoofer_completions
   fi
+
+  # Define the super_snoofer completion function
+  _super_snoofer_completion() {
+    local -a commands
+    commands=(
+      "--help:Show help message"
+      "--reset_cache:Clear command cache"
+      "--reset_memory:Clear cache and learned corrections"
+      "--history:Show command history"
+      "--frequent-typos:Show most common typos"
+      "--frequent-corrections:Show most used corrections"
+      "--clear-history:Clear command history"
+      "--enable-history:Enable command history tracking"
+      "--disable-history:Disable command history tracking"
+      "--enable-completion:Enable ZSH auto-completion"
+      "--disable-completion:Disable ZSH auto-completion"
+      "--export-completions:Export completion script"
+      "--check-command:Check if a command has typos"
+      "--suggest-completion:Get real-time command suggestions"
+      "--suggest-full-completion:Get full command suggestions"
+      "--suggest-frequent-command:Get frequently used complete commands"
+    )
+    
+    _describe -t commands "super_snoofer commands" commands
+  }
+  
+  # Register our completion function - use compdef safely if available
+  # We defer this to the next precmd hook to ensure compinit is fully loaded
+  __super_snoofer_setup_completion() {
+    # Remove this function from precmd once executed
+    add-zsh-hook -d precmd __super_snoofer_setup_completion
+    
+    # Check if compdef is available and register our completion function
+    if (( $+functions[compdef] )); then
+      compdef _super_snoofer_completion $SUPER_SNOOFER_CMD
+    else
+      # If compdef is still not available, try explicitly loading compinit
+      autoload -Uz compinit
+      compinit -u
+      
+      # Try again after forcing compinit
+      if (( $+functions[compdef] )); then
+        compdef _super_snoofer_completion $SUPER_SNOOFER_CMD
+      else
+        # Last resort - write a warning but don't error out
+        echo "Warning: ZSH completion system is not properly loaded."
+        echo "Super Snoofer completions may not work correctly."
+      fi
+    fi
+  }
+  
+  # Add our completion setup to the precmd hook for deferred execution
+  add-zsh-hook precmd __super_snoofer_setup_completion
 fi
 
 # Function to toggle Super Snoofer on/off
@@ -464,6 +588,17 @@ super_snoofer_toggle_typo_correction() {
   fi
 }
 
+# Function to toggle frequent commands feature on/off
+super_snoofer_toggle_frequent_commands() {
+  if [[ "$SUPER_SNOOFER_FREQUENT_COMMANDS" == "true" ]]; then
+    SUPER_SNOOFER_FREQUENT_COMMANDS=false
+    echo "Super Snoofer frequent commands disabled 🐺❌"
+  else
+    SUPER_SNOOFER_FREQUENT_COMMANDS=true
+    echo "Super Snoofer frequent commands enabled 🐺✅"
+  fi
+}
+
 # Function to reload completions
 super_snoofer_reload_completions() {
   if [[ "$SUPER_SNOOFER_COMPLETION_ENABLED" == "true" ]]; then
@@ -480,41 +615,15 @@ super_snoofer_reload_completions() {
   fi
 }
 
-# Enable command completion for the super_snoofer command itself
-if [[ "$SUPER_SNOOFER_COMPLETION_ENABLED" == "true" ]]; then
-  _super_snoofer_completion() {
-    local -a commands
-    commands=(
-      "--help:Show help message"
-      "--reset_cache:Clear command cache"
-      "--reset_memory:Clear cache and learned corrections"
-      "--history:Show command history"
-      "--frequent-typos:Show most common typos"
-      "--frequent-corrections:Show most used corrections"
-      "--clear-history:Clear command history"
-      "--enable-history:Enable command history tracking"
-      "--disable-history:Disable command history tracking"
-      "--enable-completion:Enable ZSH auto-completion"
-      "--disable-completion:Disable ZSH auto-completion"
-      "--export-completions:Export completion script"
-      "--check-command:Check if a command has typos"
-      "--suggest-completion:Get real-time command suggestions"
-      "--suggest-full-completion:Get full command suggestions"
-      "--suggest-frequent-command:Get frequently used complete commands"
-    )
-    
-    _describe -t commands "super_snoofer commands" commands
-  }
-  
-  # Define the completion function
-  compdef _super_snoofer_completion $SUPER_SNOOFER_CMD
-fi
-
 # Uncomment to enable the compatibility mode (fallback handler)
 # command_not_found_handler() {
 #   super_snoofer "$@"
 #   return $?
 # }
 
-# Print status message (comment this line to disable)
-echo "Super Snoofer ZSH integration loaded 🐺 (auto-suggestions, early/full completions, typo correction enabled)" 
+# Print status message only on initial script load
+if [[ "$SUPER_SNOOFER_ENABLED" == "true" && "$__SUPER_SNOOFER_LOADED" == "false" ]]; then
+  echo "Super Snoofer ZSH integration loaded 🐺 (auto-suggestions, early/full completions, frequent commands, typo correction enabled)"
+  # Mark as loaded to prevent repeated messages
+  __SUPER_SNOOFER_LOADED=true
+fi 
