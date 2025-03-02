@@ -110,6 +110,17 @@ fn handle_shell_integration(command: &str, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Handle suggestion commands
+fn handle_suggestion_command(command: &str) -> Result<()> {
+    match command {
+        "--suggest" => {
+            suggestion::suggest_alias_command()?;
+            exit(0);
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Handle help display
 fn handle_help_command(command: &str) {
     if command == "--help" || command == "-h" {
@@ -128,6 +139,7 @@ fn handle_help_command(command: &str) {
         println!("  --enable-history       Enable command history tracking");
         println!("  --disable-history      Disable command history tracking");
         println!("  --add-alias NAME [CMD] Add shell alias (default: super_snoofer)");
+        println!("  --suggest              Suggest personalized shell aliases");
         exit(0);
     }
 }
@@ -348,6 +360,7 @@ fn main() -> Result<()> {
         handle_history_commands(command)?;
         handle_history_tracking_commands(command)?;
         handle_shell_integration(command, &args)?;
+        handle_suggestion_command(command)?;
         handle_help_command(command);
         
         // If we get here, it's an unrecognized command

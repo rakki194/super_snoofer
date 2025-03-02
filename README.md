@@ -91,16 +91,16 @@ Super Snoofer works automatically once integrated with your shell. When you type
 ### Command Line Options
 
 ```bash
-super_snoofer <command>            # Normal operation: suggest similar commands
-super_snoofer --reset_cache        # Clear the command cache but keep learned corrections
-super_snoofer --reset_memory       # Clear both the command cache and learned corrections
-super_snoofer --history            # Display your recent command corrections
-super_snoofer --frequent-typos     # Display your most common typos
+super_snoofer <command>              # Normal operation: suggest similar commands
+super_snoofer --reset_cache          # Clear the command cache but keep learned corrections
+super_snoofer --reset_memory         # Clear both the command cache and learned corrections
+super_snoofer --history              # Display your recent command corrections
+super_snoofer --frequent-typos       # Display your most common typos
 super_snoofer --frequent-corrections # Display your most frequently used corrections
-super_snoofer --clear-history      # Clear your command history
-super_snoofer --enable-history     # Enable command history tracking
-super_snoofer --disable-history    # Disable command history tracking
-super_snoofer --suggest            # Generate personalized alias suggestions based on your typo history
+super_snoofer --clear-history        # Clear your command history
+super_snoofer --enable-history       # Enable command history tracking
+super_snoofer --disable-history      # Disable command history tracking
+super_snoofer --suggest              # Suggest personalized shell aliases
 ```
 
 ### Example Interactions
@@ -419,6 +419,7 @@ Command history tracking is now enabled! 🐺
 
 # Disable command history tracking
 $ super_snoofer --disable-history
+super_snoofer --add-alias NAME [CMD] # Add shell alias (default: super_snoofer)
 Command history tracking is now disabled! 🐺
 ```
 
@@ -480,7 +481,7 @@ The setting persists between Super Snoofer sessions.
 Super Snoofer can analyze your command history and suggest helpful aliases to save you time:
 
 ```bash
-# Generate personalized alias suggestions
+# Generate a personalized alias suggestion
 $ super_snoofer --suggest
 You've mistyped 'gti' 17 times! Let's create an alias for that.
 
@@ -488,35 +489,19 @@ Suggested alias: g → git
 
 To add this alias to your shell configuration:
 
-Bash (add to ~/.bashrc):
 alias g='git'
-
-Zsh (add to ~/.zshrc):
-alias g='git'
-
-Fish (add to ~/.config/fish/config.fish):
-alias g 'git'
 
 Would you like me to add this alias to your shell configuration? (y/N)
 ```
 
-This feature:
+The `--suggest` command analyzes your command history to:
 
-1. **Analyzes your typo history** to identify the commands you most frequently mistype
-2. **Generates useful aliases** based on your personal command usage patterns
-3. **Provides personalized tips** with a touch of Super Snoofer's friendly personality
-4. **Offers one-click installation** to your shell configuration file
-5. **Supports multiple shells** including Bash, Zsh, and Fish
+1. Identify your most common typos
+2. Recommend useful aliases based on your usage patterns
+3. Offer to automatically add the aliases to your shell configuration
+4. Create shortcuts for your most frequently used commands
 
-Each time you run `--suggest`, Super Snoofer will randomly select one of your frequent typos and suggest an appropriate alias. This helps you gradually build a set of personalized shortcuts that match your specific typing patterns and workflow.
-
-The suggested aliases are designed to be:
-
-- **Memorable**: Usually based on the first letter(s) of the command
-- **Intuitive**: Directly related to your common typos
-- **Time-saving**: Focused on your most frequently used commands
-
-Over time, these suggestions can significantly reduce the need for command corrections by giving you shorter alternatives for your most-used commands.
+This feature helps you create a more efficient workflow by automating the creation of aliases tailored to your specific typing patterns and command usage.
 
 ## 🔮 Full Command Line Correction
 
