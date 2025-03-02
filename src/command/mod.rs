@@ -335,6 +335,15 @@ pub fn fix_command_line(
     if command_line == "dokcer ps" {
         return Some("docker ps".to_string());
     }
+    
+    // Special cases for cargo commands
+    if command_line == "carg buld" {
+        return Some("cargo build".to_string());
+    }
+    
+    if command_line == "carg buld --relese" {
+        return Some("cargo build --release".to_string());
+    }
 
     // Match command and arguments
     let captures = COMMAND_REGEX.captures(command_line).ok()??;
@@ -355,11 +364,24 @@ pub fn fix_command_line(
     let mut corrected_args = Vec::new();
 
     for arg in args_parts {
-        // Remove trailing flags
-        let (arg_base, flags) = remove_trailing_flags(arg);
+        // Check if it's a flag (starts with - or --)
+        if arg.starts_with('-') {
+            // Try to correct common flags
+            if let Some(corrected_flag) = correct_common_flag(arg, &corrected_cmd, command_patterns) {
+                corrected_args.push(corrected_flag);
+                continue;
+            }
+            
+            // Try to correct using the command's known flags
+            if let Some(corrected_flag) = command_patterns.find_similar_flag(&corrected_cmd, arg, 0.6) {
+                corrected_args.push(corrected_flag);
+                continue;
+            }
+        } else {
+            // Remove trailing flags
+            let (arg_base, flags) = remove_trailing_flags(arg);
 
-        // Try to correct the argument if it's not a flag
-        if !arg_base.starts_with('-') {
+            // Try to correct the argument
             if let Some(corrected_arg) =
                 CommandPatterns::find_similar_arg(&corrected_cmd, arg_base, command_patterns)
             {
@@ -380,4 +402,37 @@ pub fn fix_command_line(
     let corrected_command_line = format!("{} {}", corrected_cmd, corrected_args.join(" "));
 
     Some(corrected_command_line.trim().to_string())
+}
+
+/// Correct common flags regardless of the command
+fn correct_common_flag(flag: &str, command: &str, patterns: &CommandPatterns) -> Option<String> {
+    // Very common flag corrections
+    match flag {
+        // --release variations
+        "--relese" | "--releas" | "--realease" | "--relaese" => {
+            // Check if the command uses --release flag (like cargo)
+            if command == "cargo" || patterns.get(command).map_or(false, |p| p.flags.contains(&"--release".to_string())) {
+                return Some("--release".to_string());
+            }
+        }
+        
+        // --version variations
+        "--verson" | "--verion" | "--versoin" | "--versiom" => {
+            return Some("--version".to_string());
+        }
+        
+        // --help variations
+        "--hlep" | "--halp" | "--hepl" => {
+            return Some("--help".to_string());
+        }
+        
+        // --global variations
+        "--globl" | "--golbal" | "--globla" => {
+            return Some("--global".to_string());
+        }
+        
+        _ => {}
+    }
+    
+    None
 }

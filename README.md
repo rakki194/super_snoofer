@@ -49,7 +49,7 @@ Add this to your `~/.zshrc`:
 
 ```bash
 command_not_found_handler() {
-    super_snoofer "$1"
+    super_snoofer --full-command "$1"
     return $?
 }
 ```
@@ -60,7 +60,7 @@ Add this to your `~/.bashrc`:
 
 ```bash
 command_not_found_handle() {
-    super_snoofer "$1"
+    super_snoofer --full-command "$1"
     return $?
 }
 ```
@@ -91,14 +91,14 @@ Super Snoofer works automatically once integrated with your shell. When you type
 ### Command Line Options
 
 ```bash
-super_snoofer <command>                     # Normal operation: suggest similar commands
-super_snoofer --reset_cache                 # Clear the command cache but keep learned corrections
-super_snoofer --reset_memory                # Clear both the command cache and learned corrections
-super_snoofer --history                     # Display your recent command corrections
-super_snoofer --frequent-typos              # Display your most common typos
-super_snoofer --frequent-corrections        # Display your most frequently used corrections
-super_snoofer --clear-history               # Clear your command history
-super_snoofer --enable-history                 # Enable command history tracking
+super_snoofer <command>                       # Normal operation: suggest similar commands
+super_snoofer --reset_cache                   # Clear the command cache but keep learned corrections
+super_snoofer --reset_memory                  # Clear both the command cache and learned corrections
+super_snoofer --history                       # Display your recent command corrections
+super_snoofer --frequent-typos                # Display your most common typos
+super_snoofer --frequent-corrections          # Display your most frequently used corrections
+super_snoofer --clear-history                 # Clear your command history
+super_snoofer --enable-history                # Enable command history tracking
 super_snoofer --disable-history               # Disable command history tracking
 super_snoofer --suggest                       # Suggest personalized shell aliases
 super_snoofer --check-command-line "CMD"      # Check command line for corrections 

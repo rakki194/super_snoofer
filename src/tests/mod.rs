@@ -1004,4 +1004,171 @@ pub mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_cargo_command_line_correction() -> Result<()> {
+        setup_logging();
+
+        // Create a temporary directory for our test cache
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_cache.json");
+
+        // Keep a strong reference to temp_dir to prevent premature cleanup
+        let _temp_dir_guard = &temp_dir;
+
+        // Initialize a fresh cache
+        {
+            let mut cache = CommandCache::load_from_path(&cache_path)?;
+            cache.clear_memory();
+
+            // Add cargo command
+            cache.insert("cargo");
+
+            // Learn the correction
+            cache.learn_correction("carg", "cargo")?;
+
+            cache.save()?;
+        }
+
+        // Test command line correction
+        {
+            let cache = CommandCache::load_from_path(&cache_path)?;
+
+            // Test simple cargo command correction
+            assert_eq!(
+                cache.fix_command_line("carg"),
+                Some("cargo".to_string()),
+                "Should correct 'carg' to 'cargo'"
+            );
+
+            // Test cargo with build argument
+            assert_eq!(
+                cache.fix_command_line("carg buld"),
+                Some("cargo build".to_string()),
+                "Should correct 'carg buld' to 'cargo build'"
+            );
+
+            // Test cargo with build and release flag
+            assert_eq!(
+                cache.fix_command_line("carg buld --relese"),
+                Some("cargo build --release".to_string()),
+                "Should correct 'carg buld --relese' to 'cargo build --release'"
+            );
+
+            // Test a more complex case
+            assert_eq!(
+                cache.fix_command_line("carg buld --relese -p mypackge"),
+                Some("cargo build --release -p mypackge".to_string()),
+                "Should correct cargo command with multiple arguments and flags"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_command_line_flag() -> Result<()> {
+        setup_logging();
+
+        // Create a temporary directory for our test cache
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_cache.json");
+
+        // Keep a strong reference to temp_dir to prevent premature cleanup
+        let _temp_dir_guard = &temp_dir;
+
+        // Initialize a fresh cache
+        {
+            let mut cache = CommandCache::load_from_path(&cache_path)?;
+            cache.clear_memory();
+
+            // Add cargo command
+            cache.insert("cargo");
+
+            // Learn the correction
+            cache.learn_correction("carg", "cargo")?;
+
+            cache.save()?;
+        }
+
+        // Test the check command line functionality directly
+        {
+            let cache = CommandCache::load_from_path(&cache_path)?;
+
+            // Test simple cargo command line correction
+            let cmd_line = "carg buld --relese";
+            let expected = "cargo build --release";
+            
+            let corrected = cache.fix_command_line(cmd_line);
+            assert_eq!(
+                corrected,
+                Some(expected.to_string()),
+                "Should correct {} to {}",
+                cmd_line,
+                expected
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_full_command_flag() -> Result<()> {
+        setup_logging();
+
+        // Create a temporary directory for our test cache
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_cache.json");
+
+        // Keep a strong reference to temp_dir to prevent premature cleanup
+        let _temp_dir_guard = &temp_dir;
+
+        // Initialize a fresh cache
+        {
+            let mut cache = CommandCache::load_from_path(&cache_path)?;
+            cache.clear_memory();
+
+            // Add cargo command
+            cache.insert("cargo");
+
+            // Learn the correction
+            cache.learn_correction("crgo", "cargo")?;
+            cache.learn_correction("crago", "cargo")?;
+
+            cache.save()?;
+        }
+
+        // Test the command line correction directly
+        {
+            let cache = CommandCache::load_from_path(&cache_path)?;
+
+            // Test full command line correction for "crgo bld --releas"
+            let cmd_line = "crgo bld --releas";
+            let expected = "cargo build --release";
+            
+            let corrected = cache.fix_command_line(cmd_line);
+            assert_eq!(
+                corrected,
+                Some(expected.to_string()),
+                "Should correct {} to {}",
+                cmd_line,
+                expected
+            );
+
+            // Test full command line correction for "crago bld --releas"
+            let cmd_line = "crago bld --releas";
+            let expected = "cargo build --release";
+            
+            let corrected = cache.fix_command_line(cmd_line);
+            assert_eq!(
+                corrected,
+                Some(expected.to_string()),
+                "Should correct {} to {}",
+                cmd_line,
+                expected
+            );
+        }
+
+        Ok(())
+    }
 }
