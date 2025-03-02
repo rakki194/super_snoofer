@@ -7,6 +7,7 @@ use std::{
     process::{exit, Command},
     io::Write,
 };
+use rand::Rng;
 
 const HISTORY_DISPLAY_LIMIT: usize = 20; // Default number of history entries to display
 
@@ -44,8 +45,30 @@ fn main() -> Result<()> {
             }
             "--clear-history" => {
                 let mut cache = super_snoofer::CommandCache::load()?;
+                // Check if history is enabled
+                if !cache.is_history_enabled() {
+                    println!("🐺 Command history tracking is currently disabled.");
+                    println!("To enable it, run: super_snoofer --enable-history");
+                    exit(0);
+                }
                 cache.clear_history();
                 println!("Command history cleared successfully! 🐺");
+                exit(0);
+            }
+            "--enable-history" => {
+                let mut cache = super_snoofer::CommandCache::load()?;
+                cache.enable_history()?;
+                println!("Command history tracking is now enabled! 🐺");
+                exit(0);
+            }
+            "--disable-history" => {
+                let mut cache = super_snoofer::CommandCache::load()?;
+                cache.disable_history()?;
+                println!("Command history tracking is now disabled! 🐺");
+                exit(0);
+            }
+            "--suggest" => {
+                generate_alias_suggestion()?;
                 exit(0);
             }
             _ => {}
@@ -53,16 +76,118 @@ fn main() -> Result<()> {
     }
 
     if args.len() != 2 {
-        eprintln!("Usage: {} <command> | --reset_cache | --reset_memory | --history | --frequent-typos | --frequent-corrections | --clear-history", args[0]);
+        eprintln!("Usage: {} <command> | --reset_cache | --reset_memory | --history | --frequent-typos | --frequent-corrections | --clear-history | --enable-history | --disable-history | --suggest", args[0]);
         exit(1);
     }
 
     let typed_command = &args[1];
     let mut cache = super_snoofer::CommandCache::load()?;
     cache.update()?;
+    
+    // Get the full command line (including any arguments)
+    let command_line = env::args().skip(1).collect::<Vec<String>>().join(" ");
+    
+    // First, try to correct the full command line for well-known commands
+    if let Some(suggestion) = cache.fix_command_line(&command_line) {
+        // Get frequency info if available for the base command
+        let base_suggestion = suggestion.split_whitespace().next().unwrap_or(&suggestion);
+        let frequency_info = if let Some(count) = cache.correction_frequency.get(base_suggestion) {
+            if *count > 0 {
+                format!(" (used {} times)", count)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
 
-    // Use frequency-aware suggestion function
-    if let Some(suggestion) = cache.find_similar_with_frequency(typed_command) {
+        // Check if the suggestion is a shell alias
+        if let Some(alias_target) = cache.get_alias_target(base_suggestion) {
+            print!(
+                "Awoo! 🐺 Did you mean `{}`{} (alias for `{}`)? *wags tail* (Y/n/c) ",
+                suggestion.bright_green(),
+                frequency_info,
+                alias_target.bright_blue()
+            );
+        } else {
+            print!(
+                "Awoo! 🐺 Did you mean `{}`{}? *wags tail* (Y/n/c) ",
+                suggestion.bright_green(),
+                frequency_info
+            );
+        }
+        std::io::stdout().flush()?;
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let response = input.trim().to_lowercase();
+
+        match response.as_str() {
+            "" | "y" | "yes" => {
+                // Record the correction in history
+                cache.record_correction(&command_line, &suggestion);
+
+                println!("Running suggested command...");
+                
+                let status = Command::new("sh")
+                    .arg("-c")
+                    .arg(&suggestion)
+                    .status()?;
+
+                exit(status.code().unwrap_or(1));
+            }
+            "c" | "correct" => {
+                print!("What's the correct command? ");
+                std::io::stdout().flush()?;
+                
+                let mut correction = String::new();
+                std::io::stdin().read_line(&mut correction)?;
+                let correction = correction.trim();
+                
+                if correction.is_empty() {
+                    println!("No correction provided. Exiting.");
+                    exit(1);
+                }
+                
+                let base_correction = correction.split_whitespace().next().unwrap_or(correction);
+                if !cache.contains(base_correction) {
+                    println!("Warning: '{}' is not a known command.", base_correction);
+                    
+                    print!("Continue anyway? (y/N) ");
+                    std::io::stdout().flush()?;
+                    
+                    let mut confirm = String::new();
+                    std::io::stdin().read_line(&mut confirm)?;
+                    
+                    if !["y", "yes"].contains(&confirm.trim().to_lowercase().as_str()) {
+                        println!("Aborting correction.");
+                        exit(1);
+                    }
+                }
+                
+                // Record the manual correction in history
+                cache.record_correction(&command_line, correction);
+                
+                // Also learn the base command correction
+                let base_typed = typed_command.split_whitespace().next().unwrap_or(typed_command);
+                cache.learn_correction(base_typed, base_correction)?;
+                
+                println!("Got it! 🐺 I'll remember that '{}' means '{}'", base_typed, base_correction);
+                
+                let status = Command::new("sh")
+                    .arg("-c")
+                    .arg(correction)
+                    .status()?;
+                
+                exit(status.code().unwrap_or(1));
+            }
+            _ => {
+                println!("Command '{}' not found! 🐺", typed_command);
+                exit(127); // Standard "command not found" exit code
+            }
+        }
+    } else if let Some(suggestion) = cache.find_similar_with_frequency(typed_command) {
+        // Fallback to the original behavior for single command matching
         // Get frequency info if available
         let frequency_info = if let Some(count) = cache.correction_frequency.get(&suggestion) {
             if *count > 0 {
@@ -102,12 +227,9 @@ fn main() -> Result<()> {
 
                 println!("Running suggested command...");
                 
-                // Get any arguments after the first one from the original command
-                let args_from_command: Vec<String> = env::args().skip(2).collect();
-                
                 let status = Command::new("sh")
                     .arg("-c")
-                    .arg(format!("{} {}", suggestion, args_from_command.join(" ")))
+                    .arg(format!("{} {}", suggestion, command_line.split_whitespace().skip(1).map(String::from).collect::<Vec<String>>().join(" ")))
                     .status()?;
 
                 exit(status.code().unwrap_or(1));
@@ -146,10 +268,9 @@ fn main() -> Result<()> {
                 cache.learn_correction(typed_command, correction)?;
                 println!("Got it! 🐺 I'll remember that '{}' means '{}'", typed_command, correction);
                 
-                let args_from_command: Vec<String> = env::args().skip(2).collect();
                 let status = Command::new("sh")
                     .arg("-c")
-                    .arg(format!("{} {}", correction, args_from_command.join(" ")))
+                    .arg(format!("{} {}", correction, command_line.split_whitespace().skip(1).map(String::from).collect::<Vec<String>>().join(" ")))
                     .status()?;
                 
                 exit(status.code().unwrap_or(1));
@@ -168,6 +289,14 @@ fn main() -> Result<()> {
 /// Display command correction history
 fn display_command_history() -> Result<()> {
     let cache = super_snoofer::CommandCache::load()?;
+    
+    // Check if history is enabled
+    if !cache.is_history_enabled() {
+        println!("🐺 Command history tracking is currently disabled.");
+        println!("To enable it, run: super_snoofer --enable-history");
+        return Ok(());
+    }
+    
     let history = cache.get_command_history(HISTORY_DISPLAY_LIMIT);
     
     if history.is_empty() {
@@ -191,6 +320,14 @@ fn display_command_history() -> Result<()> {
 /// Display most frequent typos
 fn display_frequent_typos() -> Result<()> {
     let cache = super_snoofer::CommandCache::load()?;
+    
+    // Check if history is enabled
+    if !cache.is_history_enabled() {
+        println!("🐺 Command history tracking is currently disabled.");
+        println!("To enable it, run: super_snoofer --enable-history");
+        return Ok(());
+    }
+    
     let typos = cache.get_frequent_typos(HISTORY_DISPLAY_LIMIT);
     
     if typos.is_empty() {
@@ -209,6 +346,14 @@ fn display_frequent_typos() -> Result<()> {
 /// Display most frequent corrections
 fn display_frequent_corrections() -> Result<()> {
     let cache = super_snoofer::CommandCache::load()?;
+    
+    // Check if history is enabled
+    if !cache.is_history_enabled() {
+        println!("🐺 Command history tracking is currently disabled.");
+        println!("To enable it, run: super_snoofer --enable-history");
+        return Ok(());
+    }
+    
     let corrections = cache.get_frequent_corrections(HISTORY_DISPLAY_LIMIT);
     
     if corrections.is_empty() {
@@ -221,6 +366,170 @@ fn display_frequent_corrections() -> Result<()> {
         println!("{}. {} ({} times)", i + 1, correction.bright_green(), count);
     }
     
+    Ok(())
+}
+
+/// Generates a personalized alias suggestion based on command history
+fn generate_alias_suggestion() -> Result<()> {
+    // Load the cache
+    let cache = super_snoofer::CommandCache::load()?;
+    
+    // Check if history is enabled
+    if !cache.is_history_enabled() {
+        println!("🐺 Command history tracking is currently disabled.");
+        println!("To enable it, run: super_snoofer --enable-history");
+        return Ok(());
+    }
+    
+    // Get the most frequent typos
+    let typos = cache.get_frequent_typos(100);
+    
+    if typos.is_empty() {
+        println!("🐺 No typo history found yet. Try using Super Snoofer more to get personalized suggestions!");
+        return Ok(());
+    }
+    
+    // Pick a random typo from the top 5 (or all if less than 5)
+    let mut rng = rand::thread_rng();
+    let top_n = std::cmp::min(5, typos.len());
+    let top_typos = &typos[0..top_n];
+    let idx = rng.gen_range(0..top_n);
+    let (selected_typo, count) = &top_typos[idx];
+    
+    // Get the correction for this typo
+    let correction = if let Some(correction_for_typo) = cache.find_similar_with_frequency(selected_typo) {
+        correction_for_typo
+    } else {
+        println!("🐺 Couldn't find a correction for '{}'. This is unexpected!", selected_typo);
+        return Ok(());
+    };
+    
+    // Generate the alias name
+    let alias_name = if selected_typo.len() <= 3 {
+        // For very short typos, use as is
+        selected_typo.clone()
+    } else {
+        // For longer typos, use the first letter or first two letters
+        if rng.gen_bool(0.5) {
+            selected_typo[0..1].to_string()
+        } else if selected_typo.len() >= 2 {
+            selected_typo[0..2].to_string()
+        } else {
+            selected_typo[0..1].to_string()
+        }
+    };
+    
+    // Generate a personalized tip
+    let tips = [
+        format!("You've mistyped '{}' {} times! Let's create an alias for that.", selected_typo, count),
+        format!("Awoo! 🐺 I noticed you typed '{}' when you meant '{}' {} times!", selected_typo, correction, count),
+        format!("Good boy tip: Create an alias for '{}' to avoid typing '{}' again! You've done it {} times!", correction, selected_typo, count),
+        format!("Woof! 🐺 '{}' is one of your most common typos. Let me help with that!", selected_typo),
+        format!("Super Snoofer suggests: You might benefit from an alias for '{}' since you've typed '{}' {} times!", correction, selected_typo, count),
+    ];
+    
+    let tip_idx = rng.gen_range(0..tips.len());
+    println!("{}", tips[tip_idx].bright_cyan());
+    
+    // Make the alias suggestion
+    println!("\nSuggested alias: {} → {}", alias_name.bright_green(), correction.bright_blue());
+    
+    // Create the alias command for different shells
+    let bash_alias = format!("alias {}='{}'", alias_name, correction);
+    let zsh_alias = bash_alias.clone();
+    let fish_alias = format!("alias {} '{}'", alias_name, correction);
+    
+    // Print the shell-specific commands
+    println!("\nTo add this alias to your shell configuration:");
+    
+    println!("\nBash (add to ~/.bashrc):");
+    println!("{}", bash_alias.bright_yellow());
+    
+    println!("\nZsh (add to ~/.zshrc):");
+    println!("{}", zsh_alias.bright_yellow());
+    
+    println!("\nFish (add to ~/.config/fish/config.fish):");
+    println!("{}", fish_alias.bright_yellow());
+    
+    // Ask if user wants to automatically add the alias
+    print!("\nWould you like me to add this alias to your shell configuration? (y/N) ");
+    std::io::stdout().flush()?;
+    
+    let mut response = String::new();
+    std::io::stdin().read_line(&mut response)?;
+    let response = response.trim().to_lowercase();
+    
+    if response == "y" || response == "yes" {
+        // Detect the current shell
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/bash"));
+        
+        if shell.contains("bash") {
+            add_to_shell_config("bash", &bash_alias)?;
+        } else if shell.contains("zsh") {
+            add_to_shell_config("zsh", &zsh_alias)?;
+        } else if shell.contains("fish") {
+            add_to_shell_config("fish", &fish_alias)?;
+        } else {
+            println!("Unsupported shell: {}. Please add the alias manually.", shell);
+        }
+    } else {
+        println!("No problem! You can add the alias manually whenever you're ready.");
+    }
+    
+    Ok(())
+}
+
+/// Add an alias to the appropriate shell configuration file
+fn add_to_shell_config(shell_type: &str, alias_line: &str) -> Result<()> {
+    let home_dir = dirs::home_dir().context("Could not find home directory")?;
+    
+    let (config_path, success_message) = match shell_type {
+        "bash" => {
+            let path = home_dir.join(".bashrc");
+            (path, "Added alias to ~/.bashrc! 🐺 Please run 'source ~/.bashrc' to use it.")
+        }
+        "zsh" => {
+            let path = home_dir.join(".zshrc");
+            (path, "Added alias to ~/.zshrc! 🐺 Please run 'source ~/.zshrc' to use it.")
+        }
+        "fish" => {
+            let path = home_dir.join(".config").join("fish").join("config.fish");
+            if !path.exists() {
+                // Create fish config directory if it doesn't exist
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
+            (path, "Added alias to ~/.config/fish/config.fish! 🐺 Please restart your shell or run 'source ~/.config/fish/config.fish' to use it.")
+        }
+        _ => {
+            return Err(anyhow::anyhow!("Unsupported shell type: {}", shell_type));
+        }
+    };
+    
+    // Append the alias to the config file
+    let mut config = if config_path.exists() {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&config_path)?
+    } else {
+        std::fs::File::create(&config_path)?
+    };
+    
+    // Add a newline before the alias if the file doesn't end with one
+    if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        if !content.ends_with('\n') {
+            writeln!(config)?;
+        }
+    }
+    
+    // Add a comment and the alias
+    writeln!(config, "\n# Added by Super Snoofer")?;
+    writeln!(config, "{}", alias_line)?;
+    
+    println!("{}", success_message.bright_green());
     Ok(())
 }
 
@@ -509,6 +818,67 @@ mod tests {
             let mut cache = super_snoofer::CommandCache::load_from_path(&cache_path)?;
             let result = cache.learn_correction("test", "nonexistent_command");
             assert!(result.is_ok(), "Learning invalid command should not fail");
+        }
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_suggest_functionality() -> Result<()> {
+        setup_logging();
+        
+        // Create a temporary directory
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_cache.json");
+        
+        // Explicitly ensure parent directory exists and handle potential errors
+        if let Some(parent) = cache_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {parent:?}"))?;
+        }
+        
+        // Keep a strong reference to temp_dir to prevent premature cleanup
+        let _temp_dir_guard = &temp_dir;
+        
+        // Set up environment variable to use our test cache
+        {
+            std::env::var_os("SUPER_SNOOFER_CACHE_PATH").map(|_| ());  // Just to check if it exists
+            
+            let cache_dir = temp_dir.path().join("cache");
+            fs::create_dir_all(&cache_dir)?;
+            let cache_file = cache_dir.join("super_snoofer_cache.json");
+            
+            // Use a safer approach with temporary directories instead of env vars
+            let mut cache = super_snoofer::CommandCache::load_from_path(&cache_file)?;
+            cache.clear_memory();
+            cache.insert("git");
+            cache.insert("docker");
+            cache.insert("ls");
+            
+            // Add some history data
+            for _ in 0..10 {
+                cache.record_correction("gti", "git");
+            }
+            
+            for _ in 0..5 {
+                cache.record_correction("dcoker", "docker");
+            }
+            
+            cache.save()?;
+            
+            // Load the cache and verify we have the expected data
+            let cache = super_snoofer::CommandCache::load_from_path(&cache_file)?;
+            
+            // Verify we have typo frequency data
+            let typos = cache.get_frequent_typos(10);
+            assert!(!typos.is_empty(), "Should have typo frequency data");
+            
+            // Check for specific entries
+            let has_gti = typos.iter().any(|(typo, _)| typo == "gti");
+            assert!(has_gti, "Should have 'gti' in frequent typos");
+            
+            let has_docker = typos.iter().any(|(typo, _)| typo == "dcoker");
+            assert!(has_docker, "Should have 'dcoker' in frequent typos");
         }
         
         Ok(())

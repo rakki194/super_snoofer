@@ -1,10 +1,10 @@
 # 🐺 Super Snoofer
 
-A fuzzy command finder for shells that suggests and executes similar commands when a typo is made. When you mistype a command, Super Snoofer will suggest the closest matching command and offer to execute it for you. Super Snoofer is a good boy and will try to learn from your mistakes.
+A fuzzy command finder for shells that suggests and executes similar commands when a typo is made. When you mistype a command, Super Snoofer will suggest the closest matching command and offer to execute it for you.  
 
 ```plaintext
 $ gti status
-Awoo! 🐺 Did you mean `git`? *wags tail* (Y/n/c) y
+Awoo! 🐺 Did you mean `git status`? *wags tail* (Y/n/c) y
 Running suggested command...
 ```
 
@@ -20,6 +20,8 @@ Running suggested command...
 - 🔒 Safe command execution through user's shell
 - ⚡ Parallel command matching using Rayon
 - 🔗 Shell alias detection and fuzzy matching for Bash, Zsh, and Fish
+- 🔮 Full command line correction including arguments and flags for well-known commands
+- 🕵️ History tracking that can be enabled or disabled for privacy
 
 ## 📦 Installation
 
@@ -87,9 +89,16 @@ Super Snoofer works automatically once integrated with your shell. When you type
 ### Command Line Options
 
 ```bash
-super_snoofer <command>          # Normal operation: suggest similar commands
-super_snoofer --reset_cache      # Clear the command cache but keep learned corrections
-super_snoofer --reset_memory     # Clear both the command cache and learned corrections
+super_snoofer <command>            # Normal operation: suggest similar commands
+super_snoofer --reset_cache        # Clear the command cache but keep learned corrections
+super_snoofer --reset_memory       # Clear both the command cache and learned corrections
+super_snoofer --history            # Display your recent command corrections
+super_snoofer --frequent-typos     # Display your most common typos
+super_snoofer --frequent-corrections # Display your most frequently used corrections
+super_snoofer --clear-history      # Clear your command history
+super_snoofer --enable-history     # Enable command history tracking
+super_snoofer --disable-history    # Disable command history tracking
+super_snoofer --suggest            # Generate personalized alias suggestions based on your typo history
 ```
 
 ### Example Interactions
@@ -364,7 +373,7 @@ Aliases are treated as first-class commands in Super Snoofer, meaning:
 
 ## 📊 Command History & Frequency Analysis
 
-Super Snoofer now tracks the history of your command corrections and typos to provide smarter suggestions over time:
+Super Snoofer is a good boy and will try to learn from your mistakes, by tracking the history of your command corrections and typos to provide smarter suggestions over time:
 
 - **Command history tracking** - Records all command corrections and queries
 - **Frequency analysis** - Suggests more commonly used commands first
@@ -401,6 +410,14 @@ $ super_snoofer --frequent-corrections
 # Clear your command history
 $ super_snoofer --clear-history
 Command history cleared successfully! 🐺
+
+# Enable command history tracking
+$ super_snoofer --enable-history
+Command history tracking is now enabled! 🐺
+
+# Disable command history tracking
+$ super_snoofer --disable-history
+Command history tracking is now disabled! 🐺
 ```
 
 When making suggestions, Super Snoofer now prioritizes commands based on your usage history:
@@ -420,3 +437,124 @@ The history data is stored in your cache file and is used to:
 4. Provide insights into your command usage habits
 
 This feature helps Super Snoofer become more personalized to your workflow the more you use it.
+
+### History Control
+
+Super Snoofer allows you to control whether command history is tracked:
+
+- **History Tracking Enabled** (default): Super Snoofer records all typos and corrections to provide increasingly personalized suggestions over time
+- **History Tracking Disabled**: No command history is recorded, providing more privacy but without the benefits of personalized suggestions
+
+You can toggle this setting using the following commands:
+
+```bash
+# Disable history tracking
+$ super_snoofer --disable-history
+Command history tracking is now disabled! 🐺
+
+# Enable history tracking
+$ super_snoofer --enable-history
+Command history tracking is now enabled! 🐺
+```
+
+When history tracking is disabled:
+
+- No new command corrections will be recorded
+- Frequency analysis will not be updated
+- Existing learned corrections will still be used
+- The `--history`, `--frequent-typos`, and `--frequent-corrections` commands will inform you that history tracking is disabled
+
+This feature is useful if you:
+
+- Are concerned about privacy
+- Share your computer with others
+- Want to prevent recording sensitive commands
+- Prefer not to have personalized suggestions
+
+The setting persists between Super Snoofer sessions.
+
+## 🧠 Personalized Alias Suggestions
+
+Super Snoofer can analyze your command history and suggest helpful aliases to save you time:
+
+```bash
+# Generate personalized alias suggestions
+$ super_snoofer --suggest
+You've mistyped 'gti' 17 times! Let's create an alias for that.
+
+Suggested alias: g → git
+
+To add this alias to your shell configuration:
+
+Bash (add to ~/.bashrc):
+alias g='git'
+
+Zsh (add to ~/.zshrc):
+alias g='git'
+
+Fish (add to ~/.config/fish/config.fish):
+alias g 'git'
+
+Would you like me to add this alias to your shell configuration? (y/N)
+```
+
+This feature:
+
+1. **Analyzes your typo history** to identify the commands you most frequently mistype
+2. **Generates useful aliases** based on your personal command usage patterns
+3. **Provides personalized tips** with a touch of Super Snoofer's friendly personality
+4. **Offers one-click installation** to your shell configuration file
+5. **Supports multiple shells** including Bash, Zsh, and Fish
+
+Each time you run `--suggest`, Super Snoofer will randomly select one of your frequent typos and suggest an appropriate alias. This helps you gradually build a set of personalized shortcuts that match your specific typing patterns and workflow.
+
+The suggested aliases are designed to be:
+
+- **Memorable**: Usually based on the first letter(s) of the command
+- **Intuitive**: Directly related to your common typos
+- **Time-saving**: Focused on your most frequently used commands
+
+Over time, these suggestions can significantly reduce the need for command corrections by giving you shorter alternatives for your most-used commands.
+
+## 🔮 Full Command Line Correction
+
+Super Snoofer v0.3.0 now corrects typos in the entire command line, not just the command name. For well-known commands, it can intelligently fix typos in subcommands, arguments, and flags:
+
+```bash
+# Correcting typos in git commands
+$ gti sttaus
+Awoo! 🐺 Did you mean `git status`? *wags tail* (Y/n/c) y
+Running suggested command...
+
+# Correcting typos in docker commands
+$ dockr ps -a
+Awoo! 🐺 Did you mean `docker ps -a`? *wags tail* (Y/n/c) y
+Running suggested command...
+
+# Correcting typos in cargo commands and flags
+$ carg buld --relese
+Awoo! 🐺 Did you mean `cargo build --release`? *wags tail* (Y/n/c) y
+Running suggested command...
+```
+
+### Supported Commands
+
+Super Snoofer includes built-in knowledge about these common commands and their arguments:
+
+- **Git**: status, commit, push, pull, branch, merge, etc.
+- **Docker**: run, build, ps, exec, logs, etc.
+- **Cargo**: build, run, test, check, publish, etc.
+- **npm**: install, uninstall, update, run, etc.
+- **kubectl**: get, describe, apply, delete, logs, etc.
+
+### How It Works
+
+When you enter a command with typos:
+
+1. Super Snoofer first corrects the base command (e.g., "gti" → "git")
+2. For well-known commands, it then attempts to correct each argument and flag
+3. For arguments, it checks against known subcommands (e.g., "sttaus" → "status")
+4. For flags, it checks against known options (e.g., "--hlp" → "--help")
+5. It presents the fully corrected command line for your approval
+
+This works best with common CLI tools, but will fall back to simple command correction for other commands.

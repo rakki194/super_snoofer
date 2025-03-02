@@ -23,7 +23,155 @@ pub const CACHE_FILE: &str = "super_snoofer_cache.json";
 pub const SIMILARITY_THRESHOLD: f64 = 0.6;
 const CACHE_LIFETIME_SECS: u64 = 86400; // 24 hours
 const ALIAS_CACHE_LIFETIME_SECS: u64 = 86400; // 24 hours
-const MAX_HISTORY_SIZE: usize = 1000; // Maximum number of entries in history
+const MAX_HISTORY_SIZE: usize = 100000; // Maximum number of entries in history
+
+/// Common commands and their arguments/flags for better correction
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CommandPattern {
+    pub command: String,
+    pub args: Vec<String>,
+    pub flags: Vec<String>,
+}
+
+/// Map of well-known commands and their common arguments/flags
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct CommandPatterns {
+    patterns: HashMap<String, CommandPattern>,
+}
+
+impl CommandPatterns {
+    /// Create a new CommandPatterns instance with predefined common commands
+    pub fn new() -> Self {
+        let mut patterns = HashMap::new();
+        
+        // Git commands
+        patterns.insert("git".to_string(), CommandPattern {
+            command: "git".to_string(),
+            args: vec![
+                "status".to_string(), "commit".to_string(), "push".to_string(), 
+                "pull".to_string(), "checkout".to_string(), "branch".to_string(),
+                "merge".to_string(), "rebase".to_string(), "log".to_string(),
+                "diff".to_string(), "add".to_string(), "reset".to_string(),
+                "fetch".to_string(), "clone".to_string(), "init".to_string(),
+                "stash".to_string(), "tag".to_string(), "remote".to_string(),
+            ],
+            flags: vec![
+                "--help".to_string(), "--version".to_string(), "-v".to_string(),
+                "--verbose".to_string(), "--global".to_string(), "--all".to_string(),
+            ],
+        });
+        
+        // Docker commands
+        patterns.insert("docker".to_string(), CommandPattern {
+            command: "docker".to_string(),
+            args: vec![
+                "run".to_string(), "build".to_string(), "pull".to_string(),
+                "push".to_string(), "ps".to_string(), "exec".to_string(),
+                "logs".to_string(), "stop".to_string(), "start".to_string(),
+                "restart".to_string(), "rm".to_string(), "rmi".to_string(),
+                "volume".to_string(), "network".to_string(), "container".to_string(),
+                "image".to_string(), "compose".to_string(), "system".to_string(),
+            ],
+            flags: vec![
+                "--help".to_string(), "--version".to_string(), "-v".to_string(),
+                "-d".to_string(), "--detach".to_string(), "-it".to_string(),
+                "-p".to_string(), "--port".to_string(), "--name".to_string(),
+                "-e".to_string(), "--env".to_string(), "--rm".to_string(),
+            ],
+        });
+        
+        // Cargo commands
+        patterns.insert("cargo".to_string(), CommandPattern {
+            command: "cargo".to_string(),
+            args: vec![
+                "build".to_string(), "run".to_string(), "test".to_string(),
+                "check".to_string(), "clean".to_string(), "doc".to_string(),
+                "publish".to_string(), "install".to_string(), "uninstall".to_string(),
+                "update".to_string(), "search".to_string(), "fmt".to_string(),
+                "clippy".to_string(), "bench".to_string(), "new".to_string(),
+                "init".to_string(), "add".to_string(), "remove".to_string(),
+            ],
+            flags: vec![
+                "--help".to_string(), "--version".to_string(), "-v".to_string(),
+                "--verbose".to_string(), "--release".to_string(), "--all".to_string(),
+                "-p".to_string(), "--package".to_string(), "--lib".to_string(),
+                "--bin".to_string(), "--example".to_string(), "--features".to_string(),
+            ],
+        });
+        
+        // NPM commands
+        patterns.insert("npm".to_string(), CommandPattern {
+            command: "npm".to_string(),
+            args: vec![
+                "install".to_string(), "uninstall".to_string(), "update".to_string(),
+                "init".to_string(), "start".to_string(), "test".to_string(),
+                "run".to_string(), "publish".to_string(), "audit".to_string(),
+                "ci".to_string(), "build".to_string(), "list".to_string(),
+                "link".to_string(), "pack".to_string(), "search".to_string(),
+            ],
+            flags: vec![
+                "--help".to_string(), "--version".to_string(), "-v".to_string(),
+                "--global".to_string(), "--save".to_string(), "--save-dev".to_string(),
+                "-g".to_string(), "-D".to_string(), "--production".to_string(),
+                "--force".to_string(), "--silent".to_string(), "--quiet".to_string(),
+            ],
+        });
+        
+        // Kubectl commands
+        patterns.insert("kubectl".to_string(), CommandPattern {
+            command: "kubectl".to_string(),
+            args: vec![
+                "get".to_string(), "describe".to_string(), "create".to_string(),
+                "delete".to_string(), "apply".to_string(), "exec".to_string(),
+                "logs".to_string(), "port-forward".to_string(), "proxy".to_string(),
+                "config".to_string(), "scale".to_string(), "rollout".to_string(),
+                "expose".to_string(), "run".to_string(), "label".to_string(),
+            ],
+            flags: vec![
+                "--help".to_string(), "--namespace".to_string(), "-n".to_string(),
+                "--all-namespaces".to_string(), "-A".to_string(), "--output".to_string(),
+                "-o".to_string(), "--selector".to_string(), "-l".to_string(),
+                "--context".to_string(), "--cluster".to_string(), "--user".to_string(),
+            ],
+        });
+        
+        Self { patterns }
+    }
+    
+    /// Get a command pattern by command name
+    pub fn get(&self, command: &str) -> Option<&CommandPattern> {
+        self.patterns.get(command)
+    }
+    
+    /// Check if a command is a well-known command
+    pub fn is_known_command(&self, command: &str) -> bool {
+        self.patterns.contains_key(command)
+    }
+    
+    /// Find the closest matching argument for a given command
+    pub fn find_similar_arg(&self, command: &str, arg: &str, threshold: f64) -> Option<String> {
+        if let Some(pattern) = self.get(command) {
+            // Search through command arguments
+            let args: Vec<&String> = pattern.args.iter().collect();
+            if let Some(best_match) = find_closest_match(arg, &args, threshold) {
+                return Some(best_match.clone());
+            }
+        }
+        None
+    }
+    
+    /// Find the closest matching flag for a given command
+    pub fn find_similar_flag(&self, command: &str, flag: &str, threshold: f64) -> Option<String> {
+        if let Some(pattern) = self.get(command) {
+            // Search through command flags
+            let flags: Vec<&String> = pattern.flags.iter().collect();
+            if let Some(best_match) = find_closest_match(flag, &flags, threshold) {
+                return Some(best_match.clone());
+            }
+        }
+        None
+    }
+}
 
 static CACHE_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
     // Check for environment variable override first
@@ -72,6 +220,17 @@ pub struct CommandCache {
     /// Frequency counter for corrections
     #[serde(default)]
     pub correction_frequency: HashMap<String, usize>,
+    /// Whether history tracking is enabled
+    #[serde(default = "default_history_enabled")]
+    pub history_enabled: bool,
+    /// Command patterns for well-known commands
+    #[serde(skip)]
+    command_patterns: CommandPatterns,
+}
+
+/// Default value for history_enabled is true
+fn default_history_enabled() -> bool {
+    true
 }
 
 impl Default for CommandCache {
@@ -86,6 +245,8 @@ impl Default for CommandCache {
             command_history: VecDeque::new(),
             typo_frequency: HashMap::new(),
             correction_frequency: HashMap::new(),
+            history_enabled: true,
+            command_patterns: CommandPatterns::new(),
         }
     }
 }
@@ -103,6 +264,8 @@ impl CommandCache {
             command_history: VecDeque::new(),
             typo_frequency: HashMap::new(),
             correction_frequency: HashMap::new(),
+            history_enabled: true,
+            command_patterns: CommandPatterns::new(),
         }
     }
 
@@ -371,6 +534,11 @@ impl CommandCache {
 
     /// Records a command correction in the history
     pub fn record_correction(&mut self, typo: &str, correction: &str) {
+        // Skip recording if history is disabled
+        if !self.history_enabled {
+            return;
+        }
+        
         // Add to command history
         let entry = CommandHistoryEntry {
             typo: typo.to_string(),
@@ -490,6 +658,75 @@ impl CommandCache {
         // Return the best match
         let (best_match, _, _) = candidates[0];
         Some((*best_match).clone())
+    }
+
+    /// Enables history tracking
+    pub fn enable_history(&mut self) -> Result<()> {
+        self.history_enabled = true;
+        self.save()?;
+        Ok(())
+    }
+
+    /// Disables history tracking
+    pub fn disable_history(&mut self) -> Result<()> {
+        self.history_enabled = false;
+        self.save()?;
+        Ok(())
+    }
+
+    /// Returns whether history tracking is enabled
+    pub fn is_history_enabled(&self) -> bool {
+        self.history_enabled
+    }
+
+    /// Analyze and fix typos in a full command line for well-known commands
+    pub fn fix_command_line(&self, command_line: &str) -> Option<String> {
+        // Split the command line into tokens
+        let tokens: Vec<&str> = command_line.trim().split_whitespace().collect();
+        
+        // Need at least one token
+        if tokens.is_empty() {
+            return None;
+        }
+        
+        // First, check if the command itself needs correction
+        let base_command = if let Some(corrected) = self.find_similar_with_frequency(tokens[0]) {
+            corrected
+        } else {
+            return None;
+        };
+        
+        // If only a single token, return the corrected command
+        if tokens.len() == 1 {
+            return Some(base_command);
+        }
+        
+        // Check if this is a well-known command that we can correct arguments for
+        if !self.command_patterns.is_known_command(&base_command) {
+            // Not a well-known command, just return the corrected base command with original args
+            return Some(format!("{} {}", base_command, tokens[1..].join(" ")));
+        }
+        
+        // This is a well-known command, try to correct each argument
+        let base_command_for_lookup = base_command.clone(); // Clone it for lookup
+        let mut corrected_tokens = vec![base_command];
+        
+        for &token in &tokens[1..] {
+            let corrected_token = if token.starts_with('-') {
+                // This looks like a flag, try to find a similar flag
+                self.command_patterns.find_similar_flag(&base_command_for_lookup, token, SIMILARITY_THRESHOLD)
+                    .unwrap_or_else(|| token.to_string())
+            } else {
+                // This looks like a command argument, try to find a similar argument
+                self.command_patterns.find_similar_arg(&base_command_for_lookup, token, SIMILARITY_THRESHOLD)
+                    .unwrap_or_else(|| token.to_string())
+            };
+            
+            corrected_tokens.push(corrected_token);
+        }
+        
+        // Reconstruct the command line
+        Some(corrected_tokens.join(" "))
     }
 }
 
@@ -2107,6 +2344,229 @@ mod tests {
         assert!(cache.command_history.len() >= 20, 
                 "Expected at least 20 history entries, found {}", 
                 cache.command_history.len());
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_history_enabled_flag() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_history_enabled.json");
+        
+        // Create a new cache
+        let mut cache = CommandCache::default();
+        cache.cache_path = Some(cache_path.clone());
+        
+        // History should be enabled by default
+        assert!(cache.is_history_enabled(), "History should be enabled by default");
+        
+        // Record a correction
+        cache.record_correction("gti", "git");
+        
+        // Verify it was recorded
+        assert_eq!(cache.command_history.len(), 1, "Command should be recorded in history");
+        assert_eq!(cache.typo_frequency.get("gti"), Some(&1), "Typo frequency should be recorded");
+        
+        // Disable history
+        cache.disable_history()?;
+        assert!(!cache.is_history_enabled(), "History should be disabled after calling disable_history");
+        
+        // Record another correction
+        cache.record_correction("pytohn", "python");
+        
+        // Verify it was NOT recorded
+        assert_eq!(cache.command_history.len(), 1, "No new entry should be added when history disabled");
+        assert_eq!(cache.typo_frequency.get("pytohn"), None, "No frequency should be recorded for new typo");
+        
+        // Re-enable history
+        cache.enable_history()?;
+        assert!(cache.is_history_enabled(), "History should be enabled after calling enable_history");
+        
+        // Record another correction
+        cache.record_correction("dockr", "docker");
+        
+        // Verify it was recorded
+        assert_eq!(cache.command_history.len(), 2, "Command should be recorded after re-enabling history");
+        assert_eq!(cache.typo_frequency.get("dockr"), Some(&1), "Typo frequency should be recorded");
+        
+        // Verify the history setting persists after loading
+        cache.save()?;
+        let loaded_cache = CommandCache::load_from_path(&cache_path)?;
+        assert!(loaded_cache.is_history_enabled(), "History enabled setting should persist when saved");
+        
+        // Disable again and verify persistence
+        cache.disable_history()?;
+        let loaded_cache = CommandCache::load_from_path(&cache_path)?;
+        assert!(!loaded_cache.is_history_enabled(), "History disabled setting should persist when saved");
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_command_line_correction() -> Result<()> {
+        let mut cache = CommandCache::default();
+        // Initialize with proper command patterns
+        cache.command_patterns = CommandPatterns::new();
+        
+        // Add commands and learned corrections
+        cache.insert("git");
+        cache.learn_correction("gti", "git")?;
+        
+        cache.insert("docker");
+        cache.learn_correction("dcoker", "docker")?;
+        
+        cache.insert("cargo");
+        cache.learn_correction("carg", "cargo")?;
+        
+        // Test git command correction
+        let correction = cache.fix_command_line("gti sttaus").unwrap();
+        assert_eq!(correction, "git status", "Should correct both the command and argument");
+        
+        // Test git flags correction
+        let correction = cache.fix_command_line("git --hlp").unwrap();
+        assert_eq!(correction, "git --help", "Should correct the flag");
+        
+        // Test docker command correction
+        let correction = cache.fix_command_line("dcoker ps").unwrap();
+        assert_eq!(correction, "docker ps", "Should correct docker command");
+        
+        // Test cargo command and flag correction
+        let correction = cache.fix_command_line("carg buld --relese").unwrap();
+        assert_eq!(correction, "cargo build --release", "Should correct cargo command, subcommand and flag");
+        
+        // Test no correction needed
+        let correction = cache.fix_command_line("git status").unwrap();
+        assert_eq!(correction, "git status", "Should not change correct commands");
+        
+        // Test unknown command
+        let result = cache.fix_command_line("unknown_cmd arg");
+        assert!(result.is_none(), "Should return None for unknown commands");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_history_with_command_line_correction() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_history_cmdline.json");
+        
+        // Create a new cache with command patterns initialized
+        let mut cache = CommandCache::default();
+        cache.command_patterns = CommandPatterns::new();
+        cache.cache_path = Some(cache_path.clone());
+        
+        // Add commands and learned corrections
+        cache.insert("git");
+        cache.learn_correction("gti", "git")?;
+        
+        // Record a full command line correction with history enabled
+        cache.record_correction("gti sttaus", "git status");
+        
+        // Verify it was recorded
+        assert_eq!(cache.command_history.len(), 1, "Command line should be recorded in history");
+        
+        // Check that a full command line correction works
+        let correction = cache.fix_command_line("gti sttaus").unwrap();
+        assert_eq!(correction, "git status", "Should correct both command and argument");
+        
+        // Disable history
+        cache.disable_history()?;
+        
+        // Record another command line
+        cache.record_correction("gti psh", "git push");
+        
+        // Verify it was NOT recorded
+        assert_eq!(cache.command_history.len(), 1, "No new entry should be added when history disabled");
+        
+        // Re-enable history
+        cache.enable_history()?;
+        
+        // Record another correction
+        cache.record_correction("gti comit", "git commit");
+        
+        // Verify it was recorded
+        assert_eq!(cache.command_history.len(), 2, "Command line should be recorded after re-enabling history");
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_command_patterns() {
+        let patterns = CommandPatterns::new();
+        
+        // Test known commands
+        assert!(patterns.is_known_command("git"), "git should be a known command");
+        assert!(patterns.is_known_command("docker"), "docker should be a known command");
+        assert!(patterns.is_known_command("cargo"), "cargo should be a known command");
+        assert!(!patterns.is_known_command("unknown"), "unknown should not be a known command");
+        
+        // Test argument matching
+        let arg_match = patterns.find_similar_arg("git", "sttus", SIMILARITY_THRESHOLD);
+        assert_eq!(arg_match, Some("status".to_string()), "Should match 'status' for 'sttus'");
+        
+        // Test flag matching
+        let flag_match = patterns.find_similar_flag("cargo", "--relese", SIMILARITY_THRESHOLD);
+        assert_eq!(flag_match, Some("--release".to_string()), "Should match '--release' for '--relese'");
+        
+        // Test no match
+        let no_match = patterns.find_similar_arg("git", "xyz", SIMILARITY_THRESHOLD);
+        assert_eq!(no_match, None, "Should return None for arguments with no match");
+    }
+    
+    #[test]
+    fn test_alias_suggestion_from_history() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let cache_path = temp_dir.path().join("test_alias_suggestion.json");
+        
+        // Create a new cache
+        let mut cache = CommandCache::default();
+        // Initialize with proper command patterns
+        cache.command_patterns = CommandPatterns::new();
+        cache.cache_path = Some(cache_path.clone());
+        
+        // Add commands to the cache
+        cache.insert("git");
+        cache.insert("docker");
+        cache.insert("ls");
+        
+        // Add learned corrections so find_similar_with_frequency will work
+        cache.learn_correction("gti", "git")?;
+        cache.learn_correction("dcoker", "docker")?;
+        cache.learn_correction("sl", "ls")?;
+        
+        // Record multiple corrections for a few commands
+        for _ in 0..10 {
+            cache.record_correction("gti", "git");
+        }
+        
+        for _ in 0..5 {
+            cache.record_correction("dcoker", "docker");
+        }
+        
+        for _ in 0..3 {
+            cache.record_correction("sl", "ls");
+        }
+        
+        // Save the cache to ensure it's persisted
+        cache.save()?;
+        
+        // Verify frequent typos
+        let typos = cache.get_frequent_typos(5);
+        assert_eq!(typos.len(), 3, "Should have 3 typo entries");
+        
+        // The first one should be "gti" with count 10
+        assert_eq!(typos[0].0, "gti", "Most frequent typo should be 'gti'");
+        assert_eq!(typos[0].1, 10, "Count for 'gti' should be 10");
+        
+        // Check that we can find corrections for these typos
+        let correction = cache.find_similar_with_frequency("gti");
+        assert_eq!(correction, Some("git".to_string()), "Should find correction for 'gti'");
+        
+        let correction = cache.find_similar_with_frequency("dcoker");
+        assert_eq!(correction, Some("docker".to_string()), "Should find correction for 'dcoker'");
+        
+        let correction = cache.find_similar_with_frequency("sl");
+        assert_eq!(correction, Some("ls".to_string()), "Should find correction for 'sl'");
         
         Ok(())
     }
