@@ -4,10 +4,12 @@ use fancy_regex::Regex;
 use std::collections::HashMap;
 use std::fs;
 use std::hash::BuildHasher;
+use anyhow::{Context, Result};
+use std::path::PathBuf;
 
 /// Parse shell aliases from various shell config files
 #[must_use]
-pub fn parse_shell_aliases() -> HashMap<String, String> {
+pub fn parse_shell_aliases() -> Result<HashMap<String, String>> {
     let mut aliases = HashMap::new();
 
     // Try to parse aliases from different shell config files
@@ -23,7 +25,7 @@ pub fn parse_shell_aliases() -> HashMap<String, String> {
         aliases.extend(fish_aliases);
     }
 
-    aliases
+    Ok(aliases)
 }
 
 /// Parse Bash aliases from .bashrc and .`bash_aliases`
@@ -77,11 +79,20 @@ fn parse_zsh_aliases() -> Option<HashMap<String, String>> {
     let home = dirs::home_dir()?;
     let mut aliases = HashMap::new();
 
-    // Check .zshrc
-    let zshrc_path = home.join(".zshrc");
-    if zshrc_path.exists() {
-        if let Ok(content) = fs::read_to_string(&zshrc_path) {
-            parse_bash_alias_content(&content, &mut aliases);
+    // Parse .zshrc and related files
+    let zsh_files = vec![
+        home.join(".zshrc"),
+        home.join("toolkit/zsh/core_shell.zsh"),
+        home.join("toolkit/zsh/docker.zsh"),
+        home.join("toolkit/zsh/git.zsh"),
+        home.join("toolkit/zsh/personal.zsh"),
+    ];
+
+    for file_path in zsh_files {
+        if file_path.exists() {
+            if let Ok(()) = parse_aliases_from_file(&file_path, &mut aliases) {
+                // Successfully parsed aliases from this file
+            }
         }
     }
 
@@ -102,6 +113,46 @@ fn parse_zsh_aliases() -> Option<HashMap<String, String>> {
     }
 
     Some(aliases)
+}
+
+fn parse_aliases_from_file(file_path: &PathBuf, aliases: &mut HashMap<String, String>) -> Result<()> {
+    let content = fs::read_to_string(file_path)
+        .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
+
+    for line in content.lines() {
+        let line = line.trim();
+        
+        // Skip comments and empty lines
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Parse alias definitions
+        if line.starts_with("alias ") {
+            parse_alias_line(line, aliases);
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_alias_line(line: &str, aliases: &mut HashMap<String, String>) {
+    // Remove 'alias ' prefix
+    let line = line.trim_start_matches("alias ").trim();
+    
+    // Split on first '=' to separate alias name and command
+    if let Some((name, command)) = line.split_once('=') {
+        let name = name.trim();
+        let mut command = command.trim();
+        
+        // Remove surrounding quotes if present
+        if (command.starts_with('\'') && command.ends_with('\'')) || 
+           (command.starts_with('"') && command.ends_with('"')) {
+            command = &command[1..command.len() - 1];
+        }
+        
+        aliases.insert(name.to_string(), command.to_string());
+    }
 }
 
 /// Parse Fish aliases from fish config

@@ -1,15 +1,187 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseEvent, MouseEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use futures::StreamExt;
+use ollama_rs::{
+    generation::completion::{request::GenerationRequest, GenerationContext},
+    Ollama,
+};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
+    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    Frame,
+};
 use std::{
     env,
-    io::Write,
+    io::{self, stdout, Write},
     process::{Command, exit},
+    sync::Arc,
+    time::{Duration, Instant},
 };
+use tokio::sync::Mutex;
+use clap::{Parser, Subcommand};
 
 // Import modules for functionality
-use super_snoofer::{CommandCache, HistoryTracker, display, suggestion};
+use super_snoofer::{CommandCache, HistoryTracker, display, suggestion, tui::TerminalUI};
+
+mod ollama;
+mod shell;
+mod tui;
+
+use ollama::OllamaClient;
+use shell::{install_shell_integration, uninstall_shell_integration};
+use tui::{TuiApp, draw_ui};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Prompt to process (launches TUI mode)
+    #[arg(short, long)]
+    prompt: Option<String>,
+
+    /// Use Codestral model instead of Dolphin
+    #[arg(long)]
+    codestral: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Install shell integration
+    Install,
+    /// Uninstall shell integration
+    Uninstall,
+}
+
+#[derive(Debug)]
+struct App {
+    input: String,
+    cursor_position: usize,
+    scroll: u16,
+    thinking_visible: bool,
+    thinking_text: String,
+    response_text: String,
+    ollama: OllamaClient,
+    last_response: Option<String>,
+}
+
+impl App {
+    async fn new() -> Result<App> {
+        Ok(App {
+            input: String::new(),
+            cursor_position: 0,
+            scroll: 0,
+            thinking_visible: true,
+            thinking_text: String::new(),
+            response_text: String::new(),
+            ollama: OllamaClient::new(),
+            last_response: None,
+        })
+    }
+
+    fn move_cursor_left(&mut self) {
+        self.cursor_position = self.cursor_position.saturating_sub(1);
+    }
+
+    fn move_cursor_right(&mut self) {
+        if self.cursor_position < self.input.len() {
+            self.cursor_position += 1;
+        }
+    }
+
+    fn enter_char(&mut self, c: char) {
+        self.input.insert(self.cursor_position, c);
+        self.cursor_position += 1;
+    }
+
+    fn delete_char(&mut self) {
+        if self.cursor_position > 0 {
+            self.cursor_position -= 1;
+            self.input.remove(self.cursor_position);
+        }
+    }
+
+    fn delete_char_forward(&mut self) {
+        if self.cursor_position < self.input.len() {
+            self.input.remove(self.cursor_position);
+        }
+    }
+
+    async fn submit_prompt(&mut self) -> Result<()> {
+        if self.input.is_empty() {
+            return Ok(());
+        }
+
+        self.thinking_text = "🤔 Thinking...".to_string();
+        self.thinking_visible = true;
+
+        let prompt = self.input.clone();
+        self.response_text.clear();
+        
+        // Get response from Ollama
+        match self.ollama.generate_response(&prompt, false).await {
+            Ok(response) => {
+                self.response_text = response;
+            }
+            Err(e) => {
+                self.response_text = format!("Error: {}", e);
+            }
+        }
+
+        self.last_response = Some(self.response_text.clone());
+        self.thinking_visible = false;
+        Ok(())
+    }
+
+    fn toggle_thinking(&mut self) {
+        self.thinking_visible = !self.thinking_visible;
+    }
+}
+
+fn ui(f: &mut Frame, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(3),
+        ])
+        .split(f.area());
+
+    // Input box
+    let input = Paragraph::new(app.input.as_str())
+        .block(Block::default().borders(Borders::ALL).title("Input"))
+        .scroll((0, app.scroll));
+    f.render_widget(input, chunks[0]);
+
+    // Set cursor position
+    f.set_cursor_position((
+        chunks[0].x + app.cursor_position as u16 + 1,
+        chunks[0].y + 1,
+    ));
+
+    // Thinking area (collapsible)
+    if app.thinking_visible {
+        let thinking = Paragraph::new(app.thinking_text.as_str())
+            .block(Block::default().borders(Borders::ALL).title("Thinking 🤔"));
+        f.render_widget(thinking, chunks[1]);
+    }
+
+    // Response area
+    let response = Paragraph::new(app.response_text.as_str())
+        .block(Block::default().borders(Borders::ALL).title("Response 🐬"));
+    f.render_widget(response, chunks[2]);
+}
 
 /// Handle cache management commands
 fn handle_cache_commands(command: &str) -> Result<()> {
@@ -86,23 +258,22 @@ fn handle_history_tracking_commands(command: &str) -> Result<()> {
 }
 
 /// Handle shell integration commands
-fn handle_shell_integration(command: &str, args: &[String]) -> Result<()> {
-    if command == "--add-alias" && args.len() >= 3 {
-        let alias_name = &args[2];
-        let alias_command = if args.len() >= 4 {
-            &args[3]
-        } else {
-            "super_snoofer"
-        };
-
-        let (shell_type, config_path, alias_line) =
-            super_snoofer::shell::detect_shell_config(alias_name, alias_command)?;
-
-        super_snoofer::shell::add_to_shell_config(shell_type, &config_path, &alias_line)?;
-        exit(0);
+fn handle_shell_integration(command: &str, _args: &[String]) -> Result<()> {
+    match command {
+        "--install" => {
+            install_shell_integration()?;
+            println!("🐺 Shell integration installed successfully!");
+            println!("Please restart your shell or run 'source ~/.zshrc' to apply changes.");
+            exit(0);
+        }
+        "--uninstall" => {
+            uninstall_shell_integration()?;
+            println!("🐺 Shell integration uninstalled successfully!");
+            println!("Please restart your shell or run 'source ~/.zshrc' to apply changes.");
+            exit(0);
+        }
+        _ => Ok(()),
     }
-
-    Ok(())
 }
 
 /// Handle suggestion commands
@@ -410,7 +581,21 @@ fn process_correction_options(
             exit(status.code().unwrap_or(1));
         } else if num == corrections.len() + 2 {
             // User wants to add a permanent alias
-            process_add_permanent_alias(typed_command, cache)?;
+            print!("Enter the command for the alias: ");
+            std::io::stdout().flush()?;
+
+            let mut correction = String::new();
+            std::io::stdin().read_line(&mut correction)?;
+            let correction = correction.trim();
+
+            if correction.is_empty() {
+                println!("No command entered. Exiting.");
+                exit(1);
+            }
+
+            process_add_permanent_alias(typed_command, correction)?;
+            println!("Alias added successfully! 🐺");
+            exit(0);
         } else if num == corrections.len() + 3 {
             // User wants to exit without running anything
             println!("Exiting without running any command.");
@@ -450,75 +635,79 @@ fn process_correction_options(
 }
 
 /// Process adding a permanent alias
-fn process_add_permanent_alias(typed_command: &str, cache: &mut CommandCache) -> Result<()> {
-    print!("Enter the correct command for the alias: ");
-    std::io::stdout().flush()?;
-
-    let mut correction = String::new();
-    std::io::stdin().read_line(&mut correction)?;
-    let correction = correction.trim();
-
-    if correction.is_empty() {
-        println!("No command entered. Exiting.");
-        exit(1);
-    }
-
-    // Add alias to shell config
-    let (shell_type, config_path, alias_line) =
-        super_snoofer::shell::detect_shell_config(typed_command, correction)?;
-
-    super_snoofer::shell::add_to_shell_config(shell_type, &config_path, &alias_line)?;
-
-    // Record the manual correction in history
-    cache.record_correction(typed_command, correction);
-
-    cache.learn_correction(typed_command, correction)?;
-    println!("Got it! 🐺 I'll remember that '{typed_command}' means '{correction}'");
-
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(format!(
-            "{} {}",
-            correction,
-            typed_command
-                .split_whitespace()
-                .skip(1)
-                .map(String::from)
-                .collect::<Vec<String>>()
-                .join(" ")
-        ))
-        .status()?;
-
-    exit(status.code().unwrap_or(1));
+fn process_add_permanent_alias(typed_command: &str, correction: &str) -> Result<()> {
+    let alias_line = format!("alias {}='{}'", typed_command, correction);
+    super_snoofer::shell::add_to_shell_config(&alias_line)?;
+    Ok(())
 }
 
-fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
 
-    // Handle command line flags
-    if args.len() > 1 {
-        let command = &args[1];
+    match cli.command {
+        Some(Commands::Install) => {
+            install_shell_integration()?;
+            println!("Shell integration installed successfully! 🐺");
+            println!("Please restart your shell or source your shell configuration file.");
+            exit(0);
+        }
+        Some(Commands::Uninstall) => {
+            uninstall_shell_integration()?;
+            println!("Shell integration uninstalled successfully! 🐺");
+            println!("Please restart your shell or source your shell configuration file.");
+            exit(0);
+        }
+        None => {
+            // Initialize terminal
+            let mut terminal = TerminalUI::new()?;
+            
+            // Initialize app state
+            let ollama = OllamaClient::new();
+            let mut app = TuiApp::new(ollama, cli.codestral);
 
-        // Try handling different types of commands
-        handle_cache_commands(command)?;
-        handle_history_commands(command)?;
-        handle_history_tracking_commands(command)?;
-        handle_shell_integration(command, &args)?;
-        handle_suggestion_command(command)?;
-        handle_check_command_line(command, &args)?;
-        handle_full_command(command, &args)?;
-        handle_learn_correction(command, &args)?;
-        handle_help_command(command);
+            // If a prompt was provided, set it as the initial input
+            if let Some(prompt) = cli.prompt {
+                app.input = prompt;
+                app.cursor_position = app.input.len();
+            }
 
-        // If we get here, it's an unrecognized command
-        let typed_command = command;
-        let command_line = env::args().skip(1).collect::<Vec<_>>().join(" ");
+            // Event loop
+            loop {
+                // Draw the UI
+                terminal.draw(|f| draw_ui(f, &app))?;
 
-        process_command(typed_command, &command_line)?;
-    } else {
-        println!("Super Snoofer - Command correction utility 🐺");
-        println!("Run 'super_snoofer --help' for usage information.");
-        exit(0);
+                // Handle input
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Enter => {
+                                app.submit_prompt().await?;
+                            }
+                            KeyCode::Char(c) => {
+                                app.enter_char(c);
+                            }
+                            KeyCode::Backspace => {
+                                app.delete_char();
+                            }
+                            KeyCode::Delete => {
+                                app.delete_char_forward();
+                            }
+                            KeyCode::Left => {
+                                app.move_cursor_left();
+                            }
+                            KeyCode::Right => {
+                                app.move_cursor_right();
+                            }
+                            KeyCode::Esc => {
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

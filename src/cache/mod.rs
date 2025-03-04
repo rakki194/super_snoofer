@@ -326,9 +326,10 @@ impl CommandCache {
 
     /// Update shell aliases
     fn update_aliases(&mut self) {
-        let aliases = parse_shell_aliases();
-        self.shell_aliases = aliases;
-        self.alias_last_update = SystemTime::now();
+        if let Ok(aliases) = parse_shell_aliases() {
+            self.shell_aliases = aliases;
+            self.alias_last_update = SystemTime::now();
+        }
     }
 
     /// Check if the cache contains a command
