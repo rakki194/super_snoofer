@@ -19,7 +19,7 @@ use std::{
 pub const CACHE_FILE: &str = "super_snoofer_cache.json";
 
 /// Threshold for similarity checks
-pub const SIMILARITY_THRESHOLD: f64 = 0.6;
+pub const SIMILARITY_THRESHOLD: f64 = 0.4;
 
 /// Cache lifetime in seconds (24 hours)
 pub const CACHE_LIFETIME_SECS: u64 = 86400;
@@ -179,6 +179,12 @@ impl CommandCache {
         }
 
         false
+    }
+
+    /// Check if the cache should be updated (either empty or too old)
+    #[must_use]
+    pub fn should_update(&self) -> bool {
+        self.commands.is_empty() || self.should_clear_cache()
     }
 
     /// Check if shell aliases should be updated due to age

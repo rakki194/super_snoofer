@@ -1,6 +1,6 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::{io::Write, process::Command};
 use crate::{CommandCache, HistoryTracker};
 
@@ -148,8 +148,19 @@ pub fn disable_history() -> Result<()> {
 /// # Errors
 /// Returns an error if the command line cannot be processed or suggestions cannot be generated
 pub fn check_command_line(command: &str) -> Result<()> {
-    let cache = CommandCache::load()?;
-    if let Some(correction) = cache.fix_command_line(command).map(|s| s.to_string()) {
+    let mut cache = CommandCache::load()?;
+    
+    // Always update if needed to get latest commands
+    if cache.should_update() {
+        cache.update()?;
+        cache.save()?;
+    }
+    
+    // Extract just the command part for display purposes
+    let cmd_only = command.split_whitespace().next().unwrap_or(command);
+    
+    // Try to find a correction
+    if let Some(correction) = cache.fix_command_line(command) {
         println!("Awoo! 🐺 Did you mean `{correction}`? *wags tail* (Y/n/c)");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
@@ -166,7 +177,31 @@ pub fn check_command_line(command: &str) -> Result<()> {
                 std::io::stdin().read_line(&mut correct)?;
                 learn_correction(command, correct.trim())?;
             }
-            _ => println!("Command '{command}' not found! 🐺")
+            _ => println!("Command '{cmd_only}' not found! 🐺")
+        }
+    } else {
+        // If we can't find a specific correction, try to suggest a similar command
+        if let Some(similar) = cache.get_closest_match(cmd_only, 0.4) {
+            println!("Awoo! 🐺 Did you mean `{similar}`? *wags tail* (Y/n/c)");
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            
+            match input.trim().to_lowercase().as_str() {
+                "y" | "" => {
+                    println!("Running suggested command...");
+                    process_full_command(&similar)?;
+                }
+                "c" => {
+                    print!("What's the correct command? ");
+                    std::io::stdout().flush()?;
+                    let mut correct = String::new();
+                    std::io::stdin().read_line(&mut correct)?;
+                    learn_correction(command, correct.trim())?;
+                }
+                _ => println!("Command '{cmd_only}' not found! 🐺")
+            }
+        } else {
+            println!("Command '{cmd_only}' not found! 🐺");
         }
     }
     Ok(())
@@ -178,18 +213,31 @@ pub fn check_command_line(command: &str) -> Result<()> {
 /// Returns an error if the command cannot be processed or if there are issues with the command execution
 pub fn process_full_command(command: &str) -> Result<()> {
     // Execute the command through the shell to ensure PATH is used
-    let status = if cfg!(target_os = "windows") {
+    let result = if cfg!(target_os = "windows") {
         Command::new("cmd")
             .args(["/C", command])
-            .status()?
+            .status()
     } else {
         Command::new("sh")
             .args(["-c", command])
-            .status()?
+            .status()
     };
     
-    if !status.success() {
-        return Err(anyhow!("Command failed with status: {}", status));
+    match result {
+        Ok(status) => {
+            if !status.success() {
+                println!("Command failed with status: {}", status);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                println!("Command not found: {}", command);
+                Ok(())
+            } else {
+                println!("Error executing command: {}", e);
+                Ok(())
+            }
+        }
     }
-    Ok(())
 } 

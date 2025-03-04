@@ -1,16 +1,17 @@
 #![warn(clippy::all, clippy::pedantic)]
 
 use anyhow::Result;
+use futures::StreamExt;
 use ollama_rs::{
     generation::completion::request::GenerationRequest,
     Ollama,
 };
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 /// Default model for standard queries
 pub const DEFAULT_MODEL: &str = "cognitivecomputations_Dolphin3.0-R1-Mistral-24B-Q5_K_M:latest";
-/// Default model for code-focused queries
+/// Default code model for code-focused queries
 pub const DEFAULT_CODE_MODEL: &str = "codestral:latest";
 
 /// Configuration for Ollama models
@@ -102,6 +103,91 @@ impl OllamaClient {
             .await?;
 
         Ok(response.response)
+    }
+    
+    /// Stream a response using Ollama's API by implementing our own streaming solution
+    /// 
+    /// # Errors
+    /// Returns an error if streaming fails due to Ollama API issues or network problems
+    pub async fn stream_response(&self, prompt: &str, use_code_model: bool, tx: mpsc::Sender<String>) -> Result<()> {
+        let model = self.model_config.get_model(use_code_model);
+        
+        // We won't use the official client's request type directly
+        // since we need to set stream=true
+        
+        let client = self.client.lock().await;
+        let url = format!("{}api/generate", client.url_str());
+        
+        // Release the mutex lock before making HTTP requests
+        drop(client);
+        
+        // Create a regular reqwest client for streaming
+        let client = reqwest::Client::new();
+        
+        // Create our own JSON payload with stream set to true
+        let json_payload = serde_json::json!({
+            "model": model,
+            "prompt": prompt,
+            "stream": true
+        });
+        
+        let serialized = serde_json::to_string(&json_payload)?;
+        
+        // Send request
+        let res = client.post(url)
+            .header("Content-Type", "application/json")
+            .body(serialized)
+            .send()
+            .await?;
+            
+        if !res.status().is_success() {
+            let error_text = res.text().await?;
+            return Err(anyhow::anyhow!("Request failed: {}", error_text));
+        }
+        
+        // Process the streaming response
+        let mut stream = res.bytes_stream();
+        let mut buffer = String::new();
+        
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
+            let chunk_str = String::from_utf8_lossy(&chunk);
+            buffer.push_str(&chunk_str);
+            
+            // Process the buffer line by line
+            while let Some(pos) = buffer.find('\n') {
+                let line = buffer[..pos].to_string();
+                let remainder = buffer[pos + 1..].to_string();
+                buffer = remainder;
+                
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                
+                // Parse the JSON response
+                if let Ok(response) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(text) = response.get("response").and_then(|v| v.as_str()) {
+                        if !text.is_empty() {
+                            let _ = tx.send(text.to_string()).await;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Process any remaining data in the buffer
+        if !buffer.is_empty() {
+            if let Ok(response) = serde_json::from_str::<serde_json::Value>(&buffer) {
+                if let Some(text) = response.get("response").and_then(|v| v.as_str()) {
+                    if !text.is_empty() {
+                        let _ = tx.send(text.to_string()).await;
+                    }
+                }
+            }
+        }
+        
+        Ok(())
     }
 }
 

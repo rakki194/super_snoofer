@@ -54,7 +54,7 @@ function __super_snoofer_check_command_line() {
     # Skip empty commands, super_snoofer itself, and commands starting with space
     [[ -z "$cmd" || "$cmd" =~ ^[[:space:]]+ || "$cmd" =~ ^super_snoofer ]] && return 0
     
-    # Handle ] and ]] commands
+    # Handle ] and ]] commands for AI interactions
     if [[ "$cmd" == "]" ]]; then
         __super_snoofer_executing=1
         command super_snoofer --prompt ""
@@ -77,21 +77,31 @@ function __super_snoofer_check_command_line() {
         return $?
     fi
     
-    # Record successful commands (exclude failures) with history toggled on
-    if [[ $? -eq 0 ]]; then
-        __super_snoofer_executing=1
-        command super_snoofer --check "$cmd ${args[*]}"
-        local ret=$?
-        __super_snoofer_executing=0
-        return $ret
-    fi
-    
+    # Check if command exists before suggesting corrections
+    # Only handle command-not-found within the hook, not in command_not_found_handler
+    # This prevents duplicate error messages
     return 0
 }
 
 # Hook into the pre-exec function in ZSH
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __super_snoofer_check_command_line
+
+# Super Snoofer command-not-found handler
+command_not_found_handler() {
+    local cmd="$1"
+    shift
+    if [ -n "$cmd" ]; then
+        __super_snoofer_executing=1
+        if [ $# -eq 0 ]; then
+            command super_snoofer -- "$cmd"
+        else
+            command super_snoofer -- "$cmd" "$@"
+        fi
+        return $?
+    fi
+    return 127
+}
 "#;
 
     fs::write(integration_path, script)?;
@@ -169,4 +179,52 @@ pub fn uninstall_shell_integration() -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn get_shell_integration(shell: &str) -> Result<String> {
+    match shell {
+        "zsh" => {
+            let script = format!(
+                r#"
+# Super Snoofer command-not-found handler
+command_not_found_handler() {{
+    local cmd="$1"
+    shift
+    if [ -n "$cmd" ]; then
+        if [ $# -eq 0 ]; then
+            command super_snoofer -- "$cmd"
+        else
+            command super_snoofer -- "$cmd" "$@"
+        fi
+        return $?
+    fi
+    return 127
+}}
+"#
+            );
+            Ok(script)
+        }
+        "bash" => {
+            let script = format!(
+                r#"
+# Super Snoofer command-not-found handler
+command_not_found_handle() {{
+    local cmd="$1"
+    shift
+    if [ -n "$cmd" ]; then
+        if [ $# -eq 0 ]; then
+            command super_snoofer -- "$cmd"
+        else
+            command super_snoofer -- "$cmd" "$@"
+        fi
+        return $?
+    fi
+    return 127
+}}
+"#
+            );
+            Ok(script)
+        }
+        _ => Err(anyhow::anyhow!("Unsupported shell: {}", shell)),
+    }
 } 
