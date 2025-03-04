@@ -86,34 +86,53 @@ pub fn install_shell_integration() -> Result<()> {
     let script = r#"
 # Super Snoofer Integration
 __super_snoofer_check_command_line() {
-    local cmd=$BUFFER
-    if [[ $cmd == ">"* ]]; then
-        # Strip the '>' prefix and any leading whitespace
-        local prompt=${cmd#>}
-        prompt=${prompt## }
-        
-        # Launch Super Snoofer TUI with the prompt (Dolphin model)
-        BUFFER=$(super_snoofer --prompt "$prompt")
-        zle reset-prompt
-        return 1
-    elif [[ $cmd == ">>"* ]]; then
-        # Strip the '>>' prefix and any leading whitespace
-        local prompt=${cmd#>>}
-        prompt=${prompt## }
-        
-        # Launch Super Snoofer TUI with the prompt (Codestral model)
-        BUFFER=$(super_snoofer --prompt "$prompt" --codestral)
-        zle reset-prompt
-        return 1
+    local cmd="$1"
+    
+    # Skip empty commands and super_snoofer itself
+    [[ -z "$cmd" || "$cmd" =~ ^super_snoofer ]] && return 0
+    
+    # Handle both > and >> commands
+    if [[ "$cmd" =~ ^[>]{1,2}[[:space:]]*$ || "$cmd" =~ ^[>]{1,2}[[:space:]]+ ]]; then
+        # Extract the prompt, removing the > or >> prefix and leading whitespace
+        local prompt
+        if [[ "$cmd" =~ ^">>" ]]; then
+            prompt="${cmd#>>}"
+            prompt="${prompt## }"
+            # Launch TUI even if empty for >>
+            command super_snoofer --prompt "${prompt:-}" --codestral
+            return $?
+        else
+            prompt="${cmd#>}"
+            prompt="${prompt## }"
+            # Launch TUI even if empty for >
+            command super_snoofer --prompt "${prompt:-}"
+            return $?
+        fi
     fi
+    
     return 0
 }
 
-# Register the widget
-zle -N __super_snoofer_check_command_line
-
-# Bind it to be called before each command
+# Register the hook
+autoload -Uz add-zsh-hook
 add-zsh-hook preexec __super_snoofer_check_command_line
+
+# Prevent shell redirection for > and >>
+function _super_snoofer_gt() {
+    if [[ "$BUFFER" =~ ^[>]{1,2}([[:space:]]+.*)?$ ]]; then
+        zle accept-line
+    else
+        zle self-insert
+    fi
+}
+
+# Register the widget for both > and >>
+zle -N _super_snoofer_gt
+bindkey ">" _super_snoofer_gt
+
+# Add alias to prevent accidental redirection
+alias \>='_super_snoofer_gt'
+alias \>>='_super_snoofer_gt'
 "#;
 
     // Append the integration script to .zshrc if it doesn't already exist

@@ -686,7 +686,9 @@ async fn main() -> Result<()> {
                                 app.move_cursor_right();
                             }
                             KeyCode::Esc => {
-                                break;
+                                // Clean up and exit
+                                drop(terminal);
+                                std::process::exit(0);
                             }
                             _ => {}
                         }

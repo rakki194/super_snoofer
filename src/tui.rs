@@ -75,24 +75,27 @@ impl TuiApp {
             return Ok(());
         }
 
-        self.thinking_text = "🤔 Thinking...".to_string();
+        self.thinking_text = "🤔 Starting...".to_string();
         self.thinking_visible = true;
-
-        let prompt = self.input.clone();
         self.response_text.clear();
+        
+        let prompt = self.input.clone();
         
         // Get response from Ollama with model selection
         match self.ollama.generate_response(&prompt, self.use_codestral).await {
             Ok(response) => {
+                self.thinking_text = "💭 Streaming response...".to_string();
                 self.response_text = response;
+                self.thinking_text = "✨ Done!".to_string();
             }
             Err(e) => {
+                self.thinking_text = "❌ Error".to_string();
                 self.response_text = format!("Error: {}", e);
             }
         }
 
         self.last_response = Some(self.response_text.clone());
-        self.thinking_visible = false;
+        self.thinking_visible = true;  // Keep status visible to show completion state
         Ok(())
     }
 
@@ -102,19 +105,24 @@ impl TuiApp {
 }
 
 pub fn draw_ui(f: &mut Frame, app: &TuiApp) {
+    // Create a flexbox-like layout with the response taking most space
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
-            Constraint::Min(1),
-            Constraint::Length(3),
+            Constraint::Length(3),     // Input box - fixed height
+            Constraint::Length(3),     // Status bar - fixed height
+            Constraint::Min(15),       // Response area - takes remaining space with minimum height
         ])
+        .margin(1)                     // Add margin around all elements
         .split(f.area());
 
-    // Input box
-    let input = Paragraph::new(app.input.as_str())
-        .block(Block::default().borders(Borders::ALL).title("Input"))
-        .scroll((0, app.scroll));
+    // Input box with instructions
+    let input_text = format!("{}\nPress Esc to exit, Enter to submit", app.input);
+    let input = Paragraph::new(input_text)
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title("Input (type your question)"))
+        .wrap(ratatui::widgets::Wrap { trim: true });  // Enable word wrap for input
     f.render_widget(input, chunks[0]);
 
     // Set cursor position
@@ -123,25 +131,38 @@ pub fn draw_ui(f: &mut Frame, app: &TuiApp) {
         chunks[0].y + 1,
     ));
 
-    // Thinking area (collapsible)
-    if app.thinking_visible {
-        let thinking = Paragraph::new(app.thinking_text.as_str())
-            .block(Block::default().borders(Borders::ALL).title("Thinking 🤔"));
-        f.render_widget(thinking, chunks[1]);
-    }
+    // Status bar with dynamic status
+    let (status_text, status_icon) = if app.thinking_visible {
+        if app.thinking_text.contains("Starting") {
+            (app.thinking_text.as_str(), "🤔")
+        } else if app.thinking_text.contains("Streaming") {
+            (app.thinking_text.as_str(), "💭")
+        } else if app.thinking_text.contains("Done") {
+            (app.thinking_text.as_str(), "✨")
+        } else if app.thinking_text.contains("Error") {
+            (app.thinking_text.as_str(), "❌")
+        } else {
+            ("Ready for input", "✨")
+        }
+    } else {
+        ("Ready for input", "✨")
+    };
 
-    // Response area with scrollbar
+    let status = Paragraph::new(status_text)
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(format!("Status {}", status_icon)));
+    f.render_widget(status, chunks[1]);
+
+    // Response area with model indicator and word wrap
+    let model_indicator = if app.use_codestral { "🧠 Codestral" } else { "🐬 Dolphin" };
     let response = Paragraph::new(app.response_text.as_str())
-        .block(Block::default().borders(Borders::ALL).title("Response 🐬"));
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(format!("Response ({})", model_indicator)))
+        .wrap(ratatui::widgets::Wrap { trim: true })    // Enable word wrap for response
+        .scroll((0, app.scroll));                       // Enable scrolling
     f.render_widget(response, chunks[2]);
-
-    let mut scrollbar_state = ScrollbarState::default();
-    f.render_stateful_widget(
-        ratatui::widgets::Scrollbar::default()
-            .orientation(ratatui::widgets::ScrollbarOrientation::VerticalRight),
-        chunks[2],
-        &mut scrollbar_state,
-    );
 }
 
 pub fn ui(f: &mut Frame, text: &str, scroll_state: &mut ScrollbarState) {
@@ -205,12 +226,13 @@ impl TerminalUI {
 
 impl Drop for TerminalUI {
     fn drop(&mut self) {
-        disable_raw_mode().unwrap();
+        // Restore terminal state
+        disable_raw_mode().unwrap_or(());
         execute!(
             self.terminal.backend_mut(),
             LeaveAlternateScreen,
             DisableMouseCapture
-        ).unwrap();
-        self.terminal.show_cursor().unwrap();
+        ).unwrap_or(());
+        self.terminal.show_cursor().unwrap_or(());
     }
 } 

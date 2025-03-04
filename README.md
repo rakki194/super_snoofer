@@ -2,12 +2,6 @@
 
 A fuzzy command finder for shells that suggests and executes similar commands when a typo is made. When you mistype a command, Super Snoofer will suggest the closest matching command and offer to execute it for you.  
 
-```plaintext
-$ gti status
-Awoo! 🐺 Did you mean `git status`? *wags tail* (Y/n/c) y
-Running suggested command...
-```
-
 ## ✨ Features
 
 - 🔍 Fuzzy command matching using Levenshtein distance
@@ -15,15 +9,15 @@ Running suggested command...
 - 🌟 Colorful and friendly interface
 - 🔄 Automatic command execution on confirmation
 - 🧠 Command learning for frequently used corrections
-- 🐍 Support for Python scripts (both .py and without extension)
-- 💾 Persistent command cache
+- 🤖 AI-powered chat interface with multiple models
+- 🎯 Quick model access with `>` and `>>` shortcuts
+- 💬 Interactive TUI for comfortable AI conversations
 - 🔒 Safe command execution through user's shell
 - ⚡ Parallel command matching using Rayon
-- 🔗 Shell alias detection and fuzzy matching for Bash, Zsh, and Fish
-- 🔮 Full command line correction including arguments and flags for well-known commands
-- 🕵️ History tracking that can be enabled or disabled for privacy
-- 🧩 Smart shell configuration for creating and managing aliases
-- 🔍 Enhanced typo correction for common commands like Git
+- 🔗 Shell alias detection and fuzzy matching
+- 🔮 Full command line correction
+- 🕵️ History tracking that can be enabled or disabled
+- 🧩 Smart shell configuration
 
 ## 📦 Installation
 
@@ -43,40 +37,23 @@ cargo install --path .
 
 ## 🔧 Setup
 
-### ZSH Integration
+### Shell Integration
 
-Add this to your `~/.zshrc`:
-
-```bash
-command_not_found_handler() {
-    super_snoofer --full-command "$1"
-    return $?
-}
-```
-
-### Bash Integration
-
-Add this to your `~/.bashrc`:
+To enable both command correction and AI chat features, run:
 
 ```bash
-command_not_found_handle() {
-    super_snoofer --full-command "$1"
-    return $?
-}
+super_snoofer install
 ```
 
-### Fish Integration
+This will set up:
 
-Create a function in `~/.config/fish/functions/fish_command_not_found.fish`:
-
-```fish
-function fish_command_not_found
-    super_snoofer "$argv[1]"
-    return $status
-end
-```
+- Command correction for typos
+- `>` shortcut for Dolphin model chat
+- `>>` shortcut for Codestral model chat
 
 ## 🎯 Usage
+
+### Command Correction
 
 Super Snoofer works automatically once integrated with your shell. When you type a command that doesn't exist, it will:
 
@@ -133,6 +110,48 @@ $ pythn
 Awoo! 🐺 Did you mean `python`? *wags tail* (Y/n/c) n
 Command 'pythn' not found! 🐺
 ```
+
+### AI Chat Interface
+
+Super Snoofer provides an interactive TUI for chatting with AI models:
+
+#### Quick Access
+
+After installing shell integration:
+
+```bash
+] what is a super snoofer?     # Chat with Dolphin model (default)
+]] tell me about rust          # Chat with Codestral model
+```
+
+Note: You can always use an empty `]` or `]]` to trigger a chat.
+
+#### Direct Launch
+
+Launch the TUI directly:
+
+```bash
+super_snoofer --prompt "your question"              # Use Dolphin model
+super_snoofer --prompt "your question" --codestral  # Use Codestral model
+```
+
+#### TUI Controls
+
+The interface is divided into three sections:
+
+Controls:
+
+- `Enter` - Submit your question
+- `Esc` - Exit the chat interface (preferred over Ctrl+C)
+- Arrow keys - Navigate input
+- Backspace/Delete - Edit input
+
+Status Indicators:
+
+- ✨ Ready - Model is ready for input
+- 🤔 Thinking - Model is processing your question
+- 🐬 Dolphin - Using Dolphin model
+- 🧠 Codestral - Using Codestral model
 
 ## ⚙️ Configuration
 
