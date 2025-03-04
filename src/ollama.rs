@@ -23,10 +23,11 @@ impl std::fmt::Debug for OllamaClient {
 }
 
 impl OllamaClient {
-    pub fn new() -> Self {
-        Self {
-            client: Arc::new(Mutex::new(Ollama::default())),
-        }
+    pub async fn new() -> Result<Self> {
+        let ollama = Ollama::default();
+        Ok(Self {
+            client: Arc::new(Mutex::new(ollama)),
+        })
     }
 
     pub async fn generate_response(&self, prompt: &str, use_codestral: bool) -> Result<String> {
@@ -36,15 +37,23 @@ impl OllamaClient {
             DOLPHIN_MODEL
         };
 
-        let request = GenerationRequest::new(model.to_string(), prompt.to_string());
         let client = self.client.lock().await;
-        let response = client.generate(request).await?;
+        let response = client
+            .generate(GenerationRequest::new(
+                model.to_string(),
+                prompt.to_string(),
+            ))
+            .await?;
+
         Ok(response.response)
     }
 }
 
 impl Default for OllamaClient {
     fn default() -> Self {
-        Self::new()
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(Self::new())
+            .unwrap()
     }
 } 

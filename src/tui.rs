@@ -25,11 +25,19 @@ pub struct TuiApp {
     pub ollama: OllamaClient,
     pub last_response: Option<String>,
     pub use_codestral: bool,
+    terminal: ratatui::Terminal<CrosstermBackend<io::Stdout>>,
 }
 
 impl TuiApp {
-    pub fn new(ollama: OllamaClient, use_codestral: bool) -> Self {
-        Self {
+    pub fn new(ollama: OllamaClient, use_codestral: bool) -> Result<Self> {
+        // Setup terminal
+        enable_raw_mode()?;
+        let mut stdout = stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stdout);
+        let terminal = ratatui::Terminal::new(backend)?;
+
+        Ok(Self {
             input: String::new(),
             cursor_position: 0,
             scroll: 0,
@@ -39,7 +47,16 @@ impl TuiApp {
             ollama,
             last_response: None,
             use_codestral,
-        }
+            terminal,
+        })
+    }
+
+    pub fn draw<F>(&mut self, f: F) -> Result<()>
+    where
+        F: FnOnce(&mut Frame),
+    {
+        self.terminal.draw(f)?;
+        Ok(())
     }
 
     pub fn move_cursor_left(&mut self) {
@@ -101,6 +118,19 @@ impl TuiApp {
 
     pub fn toggle_thinking(&mut self) {
         self.thinking_visible = !self.thinking_visible;
+    }
+}
+
+impl Drop for TuiApp {
+    fn drop(&mut self) {
+        // Restore terminal state
+        disable_raw_mode().unwrap_or(());
+        execute!(
+            self.terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        ).unwrap_or(());
+        self.terminal.show_cursor().unwrap_or(());
     }
 }
 

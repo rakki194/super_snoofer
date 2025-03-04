@@ -23,8 +23,9 @@ pub fn setup_logging() {
     });
 }
 
-#[cfg(test)]
 mod shell_tests;
+mod ollama_tests;
+mod tui_tests;
 
 #[cfg(test)]
 pub mod tests {

@@ -68,19 +68,23 @@ Super Snoofer works automatically once integrated with your shell. When you type
 ### Command Line Options
 
 ```bash
-super_snoofer <command>                       # Normal operation: suggest similar commands
-super_snoofer --reset_cache                   # Clear the command cache but keep learned corrections
-super_snoofer --reset_memory                  # Clear both the command cache and learned corrections
-super_snoofer --history                       # Display your recent command corrections
-super_snoofer --frequent-typos                # Display your most common typos
-super_snoofer --frequent-corrections          # Display your most frequently used corrections
-super_snoofer --clear-history                 # Clear your command history
-super_snoofer --enable-history                # Enable command history tracking
-super_snoofer --disable-history               # Disable command history tracking
-super_snoofer --suggest                       # Suggest personalized shell aliases
-super_snoofer --check-command-line "CMD"      # Check command line for corrections 
-super_snoofer --full-command "CMD"            # Process a full command line (for shell integration)
-super_snoofer --learn-correction "TYPO" "CMD" # Manually teach a command correction
+super_snoofer install                                                # Install shell integration
+super_snoofer uninstall                                              # Uninstall shell integration
+super_snoofer <command>                                              # Normal operation: suggest similar commands
+super_snoofer --reset_cache                                          # Clear the command cache but keep learned corrections
+super_snoofer --reset_memory                                         # Clear both the command cache and learned corrections
+super_snoofer --history                                              # Display your recent command corrections
+super_snoofer --frequent-typos                                       # Display your most common typos
+super_snoofer --frequent-corrections                                 # Display your most frequently used corrections
+super_snoofer --clear-history                                        # Clear your command history
+super_snoofer --enable-history                                       # Enable command history tracking
+super_snoofer --disable-history                                      # Disable command history tracking
+super_snoofer --suggest                                              # Suggest personalized shell aliases
+super_snoofer --check-command-line "CMD"                             # Check command line for corrections 
+super_snoofer --full-command "CMD"                                   # Process a full command line (for shell integration)
+super_snoofer --learn-correction "TYPO" "CMD"                        # Manually teach a command correction
+super_snoofer --prompt "What is super snoofer?"                      # Chat with AI about super snoofer
+super_snoofer --prompt "Rewrite super snoofer in Python" --codestral # Use Codestral model for AI chat
 ```
 
 ### Example Interactions

@@ -23,7 +23,7 @@ pub use shell::{
     detect_shell_config,
 };
 pub use ollama::OllamaClient;
-pub use tui::{TerminalUI, TuiApp};
+pub use tui::TuiApp;
 
 // Constants re-exported for backward compatibility
 pub use cache::{CACHE_FILE, SIMILARITY_THRESHOLD};

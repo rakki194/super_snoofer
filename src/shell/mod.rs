@@ -1,9 +1,7 @@
 pub mod aliases;
-pub mod integration;
+pub mod shell_config;
 
-pub use integration::{
-    install_shell_integration,
-    uninstall_shell_integration,
-    add_to_shell_config,
-    detect_shell_config,
+pub use self::shell_config::{
+    get_shell_config_path,
+    get_shell_config_paths,
 };
