@@ -33,7 +33,7 @@ impl Default for ModelConfig {
 
 impl ModelConfig {
     /// Create a new configuration with custom model names
-    pub fn new(standard_model: String, code_model: String) -> Self {
+    #[must_use] pub fn new(standard_model: String, code_model: String) -> Self {
         Self {
             standard_model,
             code_model,
@@ -41,7 +41,7 @@ impl ModelConfig {
     }
     
     /// Get the appropriate model based on the code flag
-    pub fn get_model(&self, use_code_model: bool) -> &str {
+    #[must_use] pub fn get_model(&self, use_code_model: bool) -> &str {
         if use_code_model {
             &self.code_model
         } else {

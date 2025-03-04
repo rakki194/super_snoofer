@@ -8,7 +8,7 @@ use crate::{CommandCache, HistoryTracker};
 pub fn learn_correction(typo: &str, command: &str) -> Result<()> {
     let mut cache = CommandCache::load()?;
     cache.learn_correction(typo, command)?;
-    println!("Got it! 🐺 I'll remember that '{}' means '{}'", typo, command);
+    println!("Got it! 🐺 I'll remember that '{typo}' means '{command}'");
     cache.save()?;
     Ok(())
 }
@@ -120,7 +120,7 @@ pub fn disable_history() -> Result<()> {
 pub fn check_command_line(command: &str) -> Result<()> {
     let cache = CommandCache::load()?;
     if let Some(correction) = cache.fix_command_line(command).map(|s| s.to_string()) {
-        println!("Awoo! 🐺 Did you mean `{}`? *wags tail* (Y/n/c)", correction);
+        println!("Awoo! 🐺 Did you mean `{correction}`? *wags tail* (Y/n/c)");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         
@@ -136,7 +136,7 @@ pub fn check_command_line(command: &str) -> Result<()> {
                 std::io::stdin().read_line(&mut correct)?;
                 learn_correction(command, correct.trim())?;
             }
-            _ => println!("Command '{}' not found! 🐺", command)
+            _ => println!("Command '{command}' not found! 🐺")
         }
     }
     Ok(())

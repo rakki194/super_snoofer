@@ -138,7 +138,7 @@ function command_not_found_handler() {
         let mut file = fs::OpenOptions::new()
             .append(true)
             .open(&zshrc_path)?;
-        writeln!(file, "{}", source_line)?;
+        writeln!(file, "{source_line}")?;
     }
 
     Ok(())

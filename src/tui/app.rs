@@ -125,7 +125,7 @@ impl TuiApp {
             }
             Err(e) => {
                 self.state.thinking_text = "❌ Error".to_string();
-                self.state.response_text = format!("Error: {}", e);
+                self.state.response_text = format!("Error: {e}");
             }
         }
 
@@ -195,7 +195,7 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
     let status = Paragraph::new(status_text)
         .block(Block::default()
             .borders(Borders::ALL)
-            .title(format!("Status {}", status_icon)));
+            .title(format!("Status {status_icon}")));
     f.render_widget(status, chunks[1]);
 
     // Response area with model indicator and word wrap
@@ -210,7 +210,7 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
     let response = Paragraph::new(app.response_text.as_str())
         .block(Block::default()
             .borders(Borders::ALL)
-            .title(format!("Response ({} {})", model_icon, model_name)))
+            .title(format!("Response ({model_icon} {model_name})")))
         .wrap(ratatui::widgets::Wrap { trim: true })    // Enable word wrap for response
         .scroll((0, app.scroll));                       // Enable scrolling
     f.render_widget(response, chunks[2]);

@@ -31,17 +31,17 @@ pub fn suggest_aliases() -> Result<()> {
         return Ok(());
     }
 
-    for (_i, (command, count)) in corrections.iter().enumerate() {
+    for (command, count) in &corrections {
         let alias = if command.len() <= 3 {
             command.to_string()
         } else {
             command[0..2].to_string()
         };
 
-        println!("\nYou've used '{}' {} times! Let's create an alias for that.", command, count);
-        println!("\nSuggested alias: {} → {}", alias, command);
+        println!("\nYou've used '{command}' {count} times! Let's create an alias for that.");
+        println!("\nSuggested alias: {alias} → {command}");
         println!("\nTo add this alias to your shell configuration:");
-        println!("\nalias {}='{}'", alias, command);
+        println!("\nalias {alias}='{command}'");
         
         print!("\nWould you like me to add this alias to your shell configuration? (y/N) ");
         std::io::stdout().flush()?;
@@ -90,7 +90,7 @@ pub fn detect_shell_config(alias_name: &str, command: &str) -> Result<(String, S
     let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let zshrc_path = home_dir.join(".zshrc");
     if zshrc_path.exists() {
-        let alias_line = format!("alias {}='{}'", alias_name, command);
+        let alias_line = format!("alias {alias_name}='{command}'");
         return Ok(("zsh".to_string(), zshrc_path.to_string_lossy().into(), alias_line));
     }
     Err(anyhow::anyhow!("No supported shell config found"))
@@ -101,7 +101,7 @@ pub fn add_to_shell_config(_shell_type: &str, config_path: &Path, config: &str) 
     let mut file = fs::OpenOptions::new()
         .append(true)
         .open(config_path)?;
-    writeln!(file, "\n{}", config)?;
+    writeln!(file, "\n{config}")?;
     Ok(())
 }
 

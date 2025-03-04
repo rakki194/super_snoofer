@@ -411,7 +411,7 @@ fn correct_common_flag(flag: &str, command: &str, patterns: &CommandPatterns) ->
         // --release variations
         "--relese" | "--releas" | "--realease" | "--relaese" => {
             // Check if the command uses --release flag (like cargo)
-            if command == "cargo" || patterns.get(command).map_or(false, |p| p.flags.contains(&"--release".to_string())) {
+            if command == "cargo" || patterns.get(command).is_some_and(|p| p.flags.contains(&"--release".to_string())) {
                 return Some("--release".to_string());
             }
         }

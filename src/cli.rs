@@ -57,11 +57,11 @@ pub enum Commands {
     EnableHistory,
     /// Disable command history tracking
     DisableHistory,
-    /// Add shell alias (default: super_snoofer)
+    /// Add shell alias (default: `super_snoofer`)
     AddAlias {
         /// Alias name
         name: String,
-        /// Command to alias (defaults to super_snoofer)
+        /// Command to alias (defaults to `super_snoofer`)
         #[arg(default_value = "super_snoofer")]
         command: Option<String>,
     },
