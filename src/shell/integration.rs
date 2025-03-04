@@ -6,6 +6,10 @@ use std::{
     io::Write,
 };
 
+/// Installs shell integration for Super Snoofer
+/// 
+/// # Errors
+/// Returns an error if the shell integration installation fails due to file system operations or permission issues
 pub fn install_shell_integration() -> Result<()> {
     let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let config_dir = home_dir.join(".config").join("super_snoofer");
@@ -16,6 +20,22 @@ pub fn install_shell_integration() -> Result<()> {
     fs::create_dir_all(&config_dir)?;
 
     // Create the integration script
+    write_integration_script(&integration_path)?;
+    
+    // Add source directive to shell config files if not already present
+    add_source_directive(&zshrc_path, &integration_path)?;
+
+    println!("Super Snoofer shell integration installed successfully.");
+    println!("Please restart your shell or run 'source ~/.zshrc' to activate it.");
+    
+    Ok(())
+}
+
+/// Writes the shell integration script to the specified path
+/// 
+/// # Errors
+/// Returns an error if writing to the file fails
+fn write_integration_script(integration_path: &std::path::Path) -> Result<()> {
     let script = r#"# Super Snoofer Integration
 # Flag to prevent double execution
 typeset -g __super_snoofer_executing=0
@@ -57,93 +77,64 @@ function __super_snoofer_check_command_line() {
         return $?
     fi
     
-    # Handle command not found (but ignore ] and ]] commands)
-    if ! command -v "$cmd" >/dev/null 2>&1 && [[ ! "$cmd" =~ '^(\]|\]\])' ]]; then
+    # Record successful commands (exclude failures) with history toggled on
+    if [[ $? -eq 0 ]]; then
         __super_snoofer_executing=1
-        command super_snoofer -- "$cmd" "${args[@]}"
-        return $?
+        command super_snoofer --check "$cmd ${args[*]}"
+        local ret=$?
+        __super_snoofer_executing=0
+        return $ret
     fi
     
     return 0
 }
 
-# Register Super Snoofer hook
+# Hook into the pre-exec function in ZSH
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __super_snoofer_check_command_line
+"#;
 
-# Handle ] and ]] input
-function _super_snoofer_bracket() {
-    # If we have ]] with content
-    if [[ "$BUFFER" =~ '^]][[:space:]]+' ]]; then
-        zle accept-line
-        return
-    fi
+    fs::write(integration_path, script)?;
     
-    # If we have ] with content
-    if [[ "$BUFFER" =~ '^][[:space:]]+' ]]; then
-        zle accept-line
-        return
-    fi
-    
-    # If we have an empty ]
-    if [[ "$BUFFER" == "]" ]]; then
-        # Check if the last character typed was also ]
-        if [[ "$LBUFFER" == "]" ]]; then
-            BUFFER="]]"
-            CURSOR=2  # Set cursor after the ]]
-            zle redisplay
-            return
-        fi
-        zle accept-line
-        return
-    fi
-    
-    # Default: insert ]
-    zle self-insert
-}
-
-# Register the widget
-zle -N _super_snoofer_bracket
-bindkey "]" _super_snoofer_bracket
-
-# Register command not found handler
-function command_not_found_handler() {
-    local cmd="$1"
-    shift
-    local args=("$@")
-    
-    if [[ ! "$cmd" =~ '^(\]|\]\])' ]]; then
-        __super_snoofer_executing=1
-        # Pass the command directly to super_snoofer without a subcommand
-        if [ ${#args[@]} -eq 0 ]; then
-            command super_snoofer -- "$cmd"
-        else
-            command super_snoofer -- "$cmd" "${args[@]}"
-        fi
-        return $?
-    fi
-    
-    return 127
-}"#;
-
-    // Write the integration script to the dedicated file
-    fs::write(&integration_path, script)?;
-
-    // Add source line to .zshrc if it doesn't exist
-    let source_line = format!("\n# Source Super Snoofer integration\n[ -f {} ] && source {}", 
-        integration_path.display(), integration_path.display());
-    
-    let zshrc_content = fs::read_to_string(&zshrc_path)?;
-    if !zshrc_content.contains(&source_line) {
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(&zshrc_path)?;
-        writeln!(file, "{source_line}")?;
-    }
-
     Ok(())
 }
 
+/// Adds a source directive to the shell configuration file if not already present
+/// 
+/// # Errors
+/// Returns an error if reading from or writing to the shell configuration file fails
+fn add_source_directive(zshrc_path: &std::path::Path, integration_path: &std::path::Path) -> Result<()> {
+    let integration_path_str = integration_path.to_string_lossy();
+    let source_line = format!("source {integration_path_str}");
+    
+    let mut add_to_zshrc = true;
+    
+    // Check if the source directive already exists in .zshrc
+    if zshrc_path.exists() {
+        let zshrc_content = fs::read_to_string(zshrc_path)?;
+        if zshrc_content.contains(&source_line) || zshrc_content.contains(&*integration_path_str) {
+            add_to_zshrc = false;
+        }
+    }
+    
+    // Add the source directive to .zshrc if needed
+    if add_to_zshrc {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(zshrc_path)?;
+            
+        writeln!(file, "\n# Super Snoofer shell integration")?;
+        writeln!(file, "{source_line}")?;
+    }
+    
+    Ok(())
+}
+
+/// Uninstalls Super Snoofer shell integration
+/// 
+/// # Errors
+/// Returns an error if the uninstallation fails due to file system operations or permission issues
 pub fn uninstall_shell_integration() -> Result<()> {
     let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let config_dir = home_dir.join(".config").join("super_snoofer");

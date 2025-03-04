@@ -2,7 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::ollama::{DEFAULT_DOLPHIN_MODEL, DEFAULT_CODESTRAL_MODEL};
+use crate::ollama::{DEFAULT_MODEL, DEFAULT_CODE_MODEL};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -19,11 +19,11 @@ pub struct Cli {
     pub codestral: bool,
     
     /// Specify the standard model to use (overrides default)
-    #[arg(long, default_value_t = DEFAULT_DOLPHIN_MODEL.to_string())]
+    #[arg(long, default_value_t = DEFAULT_MODEL.to_string())]
     pub standard_model: String,
     
     /// Specify the code model to use (overrides default)
-    #[arg(long, default_value_t = DEFAULT_CODESTRAL_MODEL.to_string())]
+    #[arg(long, default_value_t = DEFAULT_CODE_MODEL.to_string())]
     pub code_model: String,
 
     /// Command line to check (for command not found handler)
@@ -92,10 +92,10 @@ pub enum Commands {
         #[arg(long)]
         codestral: bool,
         /// Specify the standard model to use (overrides default)
-        #[arg(long, default_value_t = DEFAULT_DOLPHIN_MODEL.to_string())]
+        #[arg(long, default_value_t = DEFAULT_MODEL.to_string())]
         standard_model: String,
         /// Specify the code model to use (overrides default)
-        #[arg(long, default_value_t = DEFAULT_CODESTRAL_MODEL.to_string())]
+        #[arg(long, default_value_t = DEFAULT_CODE_MODEL.to_string())]
         code_model: String,
     },
 }
@@ -112,8 +112,8 @@ impl Cli {
                     command: None,
                     prompt: None,
                     codestral: false,
-                    standard_model: DEFAULT_DOLPHIN_MODEL.to_string(),
-                    code_model: DEFAULT_CODESTRAL_MODEL.to_string(),
+                    standard_model: DEFAULT_MODEL.to_string(),
+                    code_model: DEFAULT_CODE_MODEL.to_string(),
                     command_to_check: args[sep_pos + 1..].to_vec(),
                 };
             }

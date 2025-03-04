@@ -4,7 +4,10 @@ use anyhow::{anyhow, Result};
 use std::{io::Write, process::Command};
 use crate::{CommandCache, HistoryTracker};
 
-/// Learn a command correction
+/// Learns a correction for a typo
+/// 
+/// # Errors
+/// Returns an error if saving the correction to the database fails
 pub fn learn_correction(typo: &str, command: &str) -> Result<()> {
     let mut cache = CommandCache::load()?;
     cache.learn_correction(typo, command)?;
@@ -13,7 +16,10 @@ pub fn learn_correction(typo: &str, command: &str) -> Result<()> {
     Ok(())
 }
 
-/// Reset the command cache but keep learned corrections
+/// Resets the command cache
+/// 
+/// # Errors
+/// Returns an error if the cache file cannot be deleted
 pub fn reset_cache() -> Result<()> {
     let mut cache = CommandCache::load()?;
     cache.clear_cache();
@@ -21,7 +27,10 @@ pub fn reset_cache() -> Result<()> {
     Ok(())
 }
 
-/// Reset both the command cache and learned corrections
+/// Resets the memory database
+/// 
+/// # Errors
+/// Returns an error if the memory database cannot be reset
 pub fn reset_memory() -> Result<()> {
     let mut cache = CommandCache::load()?;
     cache.clear_memory();
@@ -29,7 +38,10 @@ pub fn reset_memory() -> Result<()> {
     Ok(())
 }
 
-/// Show command history
+/// Shows the command history
+/// 
+/// # Errors
+/// Returns an error if the history file cannot be read or parsed
 pub fn show_history() -> Result<()> {
     let cache = CommandCache::load()?;
     if !cache.is_history_enabled() {
@@ -50,7 +62,10 @@ pub fn show_history() -> Result<()> {
     Ok(())
 }
 
-/// Show most frequent typos
+/// Shows the most frequent typos
+/// 
+/// # Errors
+/// Returns an error if the typo data cannot be retrieved or processed
 pub fn show_frequent_typos() -> Result<()> {
     let cache = CommandCache::load()?;
     if !cache.is_history_enabled() {
@@ -71,7 +86,10 @@ pub fn show_frequent_typos() -> Result<()> {
     Ok(())
 }
 
-/// Show most frequently used corrections
+/// Shows the most frequent corrections
+/// 
+/// # Errors
+/// Returns an error if the correction data cannot be retrieved or processed
 pub fn show_frequent_corrections() -> Result<()> {
     let cache = CommandCache::load()?;
     if !cache.is_history_enabled() {
@@ -92,7 +110,10 @@ pub fn show_frequent_corrections() -> Result<()> {
     Ok(())
 }
 
-/// Clear command history
+/// Clears the command history
+/// 
+/// # Errors
+/// Returns an error if the history file cannot be cleared
 pub fn clear_history() -> Result<()> {
     let mut cache = CommandCache::load()?;
     cache.clear_history();
@@ -100,7 +121,10 @@ pub fn clear_history() -> Result<()> {
     Ok(())
 }
 
-/// Enable command history tracking
+/// Enables tracking of command history
+/// 
+/// # Errors
+/// Returns an error if the history settings cannot be updated
 pub fn enable_history() -> Result<()> {
     let mut cache = CommandCache::load()?;
     cache.enable_history()?;
@@ -108,7 +132,10 @@ pub fn enable_history() -> Result<()> {
     Ok(())
 }
 
-/// Disable command history tracking
+/// Disables tracking of command history
+/// 
+/// # Errors
+/// Returns an error if the history settings cannot be updated
 pub fn disable_history() -> Result<()> {
     let mut cache = CommandCache::load()?;
     cache.disable_history()?;
@@ -116,7 +143,10 @@ pub fn disable_history() -> Result<()> {
     Ok(())
 }
 
-/// Check command line for corrections
+/// Checks a command line for potential corrections
+/// 
+/// # Errors
+/// Returns an error if the command line cannot be processed or suggestions cannot be generated
 pub fn check_command_line(command: &str) -> Result<()> {
     let cache = CommandCache::load()?;
     if let Some(correction) = cache.fix_command_line(command).map(|s| s.to_string()) {
@@ -142,7 +172,10 @@ pub fn check_command_line(command: &str) -> Result<()> {
     Ok(())
 }
 
-/// Process a full command line
+/// Processes a full command line
+/// 
+/// # Errors
+/// Returns an error if the command cannot be processed or if there are issues with the command execution
 pub fn process_full_command(command: &str) -> Result<()> {
     // Execute the command through the shell to ensure PATH is used
     let status = if cfg!(target_os = "windows") {

@@ -10,6 +10,9 @@ use std::{
 use crate::{CommandCache, HistoryTracker};
 
 /// Add a shell alias
+/// 
+/// # Errors
+/// Returns an error if the alias cannot be added to the shell configuration
 pub fn add_alias(name: &str, command: Option<&str>) -> Result<()> {
     let command = command.unwrap_or("super_snoofer");
     let (shell_type, config_path, alias_line) = detect_shell_config(name, command)?;
@@ -18,6 +21,9 @@ pub fn add_alias(name: &str, command: Option<&str>) -> Result<()> {
 }
 
 /// Suggest personalized shell aliases
+/// 
+/// # Errors
+/// Returns an error if the command history cannot be read or if aliases cannot be suggested
 pub fn suggest_aliases() -> Result<()> {
     let cache = CommandCache::load()?;
     if !cache.is_history_enabled() {
@@ -58,6 +64,9 @@ pub fn suggest_aliases() -> Result<()> {
 }
 
 /// Parse shell aliases from various shell config files
+/// 
+/// # Errors
+/// Returns an error if the shell configuration files cannot be read or if aliases cannot be parsed
 pub fn parse_shell_aliases() -> Result<HashMap<String, String>> {
     let mut aliases = HashMap::new();
     
@@ -86,6 +95,9 @@ pub fn parse_shell_aliases() -> Result<HashMap<String, String>> {
 }
 
 /// Detect shell config file and generate alias line
+/// 
+/// # Errors
+/// Returns an error if the shell type cannot be detected or if the configuration files cannot be found
 pub fn detect_shell_config(alias_name: &str, command: &str) -> Result<(String, String, String)> {
     let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let zshrc_path = home_dir.join(".zshrc");
@@ -97,6 +109,9 @@ pub fn detect_shell_config(alias_name: &str, command: &str) -> Result<(String, S
 }
 
 /// Add configuration to shell config file
+/// 
+/// # Errors
+/// Returns an error if the shell configuration file cannot be modified
 pub fn add_to_shell_config(_shell_type: &str, config_path: &Path, config: &str) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .append(true)

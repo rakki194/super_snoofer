@@ -37,6 +37,10 @@ pub struct TuiApp {
 }
 
 impl TuiApp {
+    /// Creates a new TUI application
+    /// 
+    /// # Errors
+    /// Returns an error if the terminal cannot be initialized
     pub fn new(ollama: OllamaClient, use_codestral: bool) -> Result<Self> {
         // Setup terminal
         enable_raw_mode()?;
@@ -69,6 +73,10 @@ impl TuiApp {
         })
     }
 
+    /// Draws the UI components
+    /// 
+    /// # Errors
+    /// Returns an error if rendering to the terminal fails
     pub fn draw<F>(&mut self, f: F) -> Result<()>
     where
         F: FnOnce(&mut Frame)
@@ -105,6 +113,10 @@ impl TuiApp {
         }
     }
 
+    /// Submits the current prompt for processing
+    /// 
+    /// # Errors
+    /// Returns an error if the prompt cannot be processed or if the response generation fails
     pub async fn submit_prompt(&mut self) -> Result<()> {
         if self.state.input.is_empty() {
             return Ok(());
@@ -171,7 +183,7 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
 
     // Set cursor position
     f.set_cursor_position((
-        chunks[0].x + app.cursor_position as u16 + 1,
+        chunks[0].x + u16::try_from(app.cursor_position).unwrap_or(0) + 1,
         chunks[0].y + 1,
     ));
 

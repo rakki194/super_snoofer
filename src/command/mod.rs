@@ -29,7 +29,20 @@ impl CommandPatterns {
     pub fn new() -> Self {
         let mut patterns = HashMap::new();
 
-        // Git commands
+        Self::add_git_commands(&mut patterns);
+        Self::add_docker_commands(&mut patterns);
+        Self::add_cargo_commands(&mut patterns);
+        Self::add_file_commands(&mut patterns);
+        Self::add_network_commands(&mut patterns);
+        Self::add_package_commands(&mut patterns);
+        Self::add_process_commands(&mut patterns);
+        Self::add_misc_commands(&mut patterns);
+
+        Self { patterns }
+    }
+    
+    /// Add Git commands to the patterns
+    fn add_git_commands(patterns: &mut HashMap<String, CommandPattern>) {
         patterns.insert(
             "git".to_string(),
             CommandPattern {
@@ -48,24 +61,21 @@ impl CommandPatterns {
                     "add".to_string(),
                     "reset".to_string(),
                     "fetch".to_string(),
-                    "clone".to_string(),
-                    "init".to_string(),
-                    "stash".to_string(),
-                    "tag".to_string(),
-                    "remote".to_string(),
                 ],
                 flags: vec![
                     "--help".to_string(),
-                    "--version".to_string(),
-                    "-v".to_string(),
                     "--verbose".to_string(),
-                    "--global".to_string(),
+                    "--quiet".to_string(),
+                    "--force".to_string(),
                     "--all".to_string(),
+                    "--dry-run".to_string(),
                 ],
             },
         );
-
-        // Docker commands
+    }
+    
+    /// Add Docker commands to the patterns
+    fn add_docker_commands(patterns: &mut HashMap<String, CommandPattern>) {
         patterns.insert(
             "docker".to_string(),
             CommandPattern {
@@ -76,158 +86,340 @@ impl CommandPatterns {
                     "pull".to_string(),
                     "push".to_string(),
                     "ps".to_string(),
+                    "images".to_string(),
                     "exec".to_string(),
                     "logs".to_string(),
                     "stop".to_string(),
-                    "start".to_string(),
-                    "restart".to_string(),
                     "rm".to_string(),
                     "rmi".to_string(),
                     "volume".to_string(),
                     "network".to_string(),
-                    "container".to_string(),
-                    "image".to_string(),
-                    "compose".to_string(),
-                    "system".to_string(),
                 ],
                 flags: vec![
                     "--help".to_string(),
-                    "--version".to_string(),
-                    "-v".to_string(),
-                    "-d".to_string(),
-                    "--detach".to_string(),
+                    "--all".to_string(),
                     "-it".to_string(),
-                    "-p".to_string(),
-                    "--port".to_string(),
-                    "--name".to_string(),
+                    "-d".to_string(),
                     "-e".to_string(),
-                    "--env".to_string(),
+                    "-p".to_string(),
+                    "-v".to_string(),
                     "--rm".to_string(),
                 ],
             },
         );
-
-        // Cargo commands
+    }
+    
+    /// Add Cargo commands to the patterns
+    fn add_cargo_commands(patterns: &mut HashMap<String, CommandPattern>) {
         patterns.insert(
             "cargo".to_string(),
             CommandPattern {
                 command: "cargo".to_string(),
                 args: vec![
                     "build".to_string(),
-                    "run".to_string(),
-                    "test".to_string(),
                     "check".to_string(),
                     "clean".to_string(),
                     "doc".to_string(),
-                    "publish".to_string(),
-                    "install".to_string(),
-                    "uninstall".to_string(),
-                    "update".to_string(),
-                    "search".to_string(),
-                    "fmt".to_string(),
-                    "clippy".to_string(),
-                    "bench".to_string(),
                     "new".to_string(),
                     "init".to_string(),
+                    "run".to_string(),
+                    "test".to_string(),
+                    "bench".to_string(),
+                    "update".to_string(),
+                    "search".to_string(),
                     "add".to_string(),
-                    "remove".to_string(),
+                    "fmt".to_string(),
+                    "clippy".to_string(),
                 ],
                 flags: vec![
-                    "--help".to_string(),
-                    "--version".to_string(),
-                    "-v".to_string(),
-                    "--verbose".to_string(),
                     "--release".to_string(),
                     "--all".to_string(),
-                    "-p".to_string(),
-                    "--package".to_string(),
+                    "--verbose".to_string(),
+                    "--quiet".to_string(),
+                    "--help".to_string(),
                     "--lib".to_string(),
                     "--bin".to_string(),
                     "--example".to_string(),
-                    "--features".to_string(),
                 ],
             },
         );
-
-        // NPM commands
+    }
+    
+    /// Add file-related commands to the patterns
+    fn add_file_commands(patterns: &mut HashMap<String, CommandPattern>) {
+        // ls command
         patterns.insert(
-            "npm".to_string(),
+            "ls".to_string(),
             CommandPattern {
-                command: "npm".to_string(),
+                command: "ls".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-l".to_string(),
+                    "-a".to_string(),
+                    "-h".to_string(),
+                    "-R".to_string(),
+                    "--color".to_string(),
+                    "-la".to_string(),
+                    "-lh".to_string(),
+                ],
+            },
+        );
+        
+        // cd command
+        patterns.insert(
+            "cd".to_string(),
+            CommandPattern {
+                command: "cd".to_string(),
+                args: vec![],
+                flags: vec![],
+            },
+        );
+        
+        // cp command
+        patterns.insert(
+            "cp".to_string(),
+            CommandPattern {
+                command: "cp".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-r".to_string(),
+                    "-v".to_string(),
+                    "-i".to_string(),
+                    "-f".to_string(),
+                    "-a".to_string(),
+                ],
+            },
+        );
+        
+        // mv command
+        patterns.insert(
+            "mv".to_string(),
+            CommandPattern {
+                command: "mv".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-v".to_string(),
+                    "-i".to_string(),
+                    "-f".to_string(),
+                ],
+            },
+        );
+        
+        // rm command
+        patterns.insert(
+            "rm".to_string(),
+            CommandPattern {
+                command: "rm".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-r".to_string(),
+                    "-f".to_string(),
+                    "-i".to_string(),
+                    "-v".to_string(),
+                    "-rf".to_string(),
+                ],
+            },
+        );
+    }
+    
+    /// Add network-related commands to the patterns
+    fn add_network_commands(patterns: &mut HashMap<String, CommandPattern>) {
+        // curl command
+        patterns.insert(
+            "curl".to_string(),
+            CommandPattern {
+                command: "curl".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-X".to_string(),
+                    "-H".to_string(),
+                    "-d".to_string(),
+                    "-v".to_string(),
+                    "-s".to_string(),
+                    "-o".to_string(),
+                    "-L".to_string(),
+                    "-i".to_string(),
+                ],
+            },
+        );
+        
+        // wget command
+        patterns.insert(
+            "wget".to_string(),
+            CommandPattern {
+                command: "wget".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-q".to_string(),
+                    "-O".to_string(),
+                    "-c".to_string(),
+                    "-r".to_string(),
+                    "-p".to_string(),
+                ],
+            },
+        );
+        
+        // ssh command
+        patterns.insert(
+            "ssh".to_string(),
+            CommandPattern {
+                command: "ssh".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-p".to_string(),
+                    "-i".to_string(),
+                    "-v".to_string(),
+                    "-l".to_string(),
+                ],
+            },
+        );
+    }
+    
+    /// Add package management commands to the patterns
+    fn add_package_commands(patterns: &mut HashMap<String, CommandPattern>) {
+        // apt commands
+        patterns.insert(
+            "apt".to_string(),
+            CommandPattern {
+                command: "apt".to_string(),
                 args: vec![
                     "install".to_string(),
-                    "uninstall".to_string(),
                     "update".to_string(),
-                    "init".to_string(),
-                    "start".to_string(),
-                    "test".to_string(),
-                    "run".to_string(),
-                    "publish".to_string(),
-                    "audit".to_string(),
-                    "ci".to_string(),
-                    "build".to_string(),
-                    "list".to_string(),
-                    "link".to_string(),
-                    "pack".to_string(),
+                    "upgrade".to_string(),
+                    "remove".to_string(),
+                    "purge".to_string(),
+                    "autoremove".to_string(),
                     "search".to_string(),
+                    "list".to_string(),
+                    "show".to_string(),
                 ],
                 flags: vec![
+                    "-y".to_string(),
+                    "-q".to_string(),
                     "--help".to_string(),
-                    "--version".to_string(),
-                    "-v".to_string(),
-                    "--global".to_string(),
-                    "--save".to_string(),
-                    "--save-dev".to_string(),
-                    "-g".to_string(),
-                    "-D".to_string(),
-                    "--production".to_string(),
-                    "--force".to_string(),
-                    "--silent".to_string(),
-                    "--quiet".to_string(),
+                    "--no-install-recommends".to_string(),
                 ],
             },
         );
-
-        // Kubectl commands
+        
+        // pacman commands
         patterns.insert(
-            "kubectl".to_string(),
+            "pacman".to_string(),
             CommandPattern {
-                command: "kubectl".to_string(),
+                command: "pacman".to_string(),
                 args: vec![
-                    "get".to_string(),
-                    "describe".to_string(),
-                    "create".to_string(),
-                    "delete".to_string(),
-                    "apply".to_string(),
-                    "exec".to_string(),
-                    "logs".to_string(),
-                    "port-forward".to_string(),
-                    "proxy".to_string(),
-                    "config".to_string(),
-                    "scale".to_string(),
-                    "rollout".to_string(),
-                    "expose".to_string(),
-                    "run".to_string(),
-                    "label".to_string(),
+                    "-S".to_string(),
+                    "-Syu".to_string(),
+                    "-Sy".to_string(),
+                    "-R".to_string(),
+                    "-Q".to_string(),
+                    "-Ss".to_string(),
                 ],
                 flags: vec![
-                    "--help".to_string(),
-                    "--version".to_string(),
-                    "--namespace".to_string(),
-                    "-n".to_string(),
-                    "--all-namespaces".to_string(),
-                    "-A".to_string(),
-                    "--output".to_string(),
-                    "-o".to_string(),
-                    "--selector".to_string(),
-                    "-l".to_string(),
-                    "--context".to_string(),
-                    "--cluster".to_string(),
+                    "--noconfirm".to_string(),
+                    "--needed".to_string(),
+                    "-q".to_string(),
                 ],
             },
         );
-
-        Self { patterns }
+    }
+    
+    /// Add process management commands to the patterns
+    fn add_process_commands(patterns: &mut HashMap<String, CommandPattern>) {
+        // ps command
+        patterns.insert(
+            "ps".to_string(),
+            CommandPattern {
+                command: "ps".to_string(),
+                args: vec![],
+                flags: vec![
+                    "aux".to_string(),
+                    "-ef".to_string(),
+                    "-a".to_string(),
+                    "-u".to_string(),
+                    "-x".to_string(),
+                ],
+            },
+        );
+        
+        // grep command
+        patterns.insert(
+            "grep".to_string(),
+            CommandPattern {
+                command: "grep".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-i".to_string(),
+                    "-v".to_string(),
+                    "-r".to_string(),
+                    "-E".to_string(),
+                    "-n".to_string(),
+                    "-l".to_string(),
+                    "--color".to_string(),
+                ],
+            },
+        );
+        
+        // kill command
+        patterns.insert(
+            "kill".to_string(),
+            CommandPattern {
+                command: "kill".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-9".to_string(),
+                    "-15".to_string(),
+                    "-SIGTERM".to_string(),
+                    "-SIGKILL".to_string(),
+                ],
+            },
+        );
+    }
+    
+    /// Add miscellaneous commands to the patterns
+    fn add_misc_commands(patterns: &mut HashMap<String, CommandPattern>) {
+        // find command
+        patterns.insert(
+            "find".to_string(),
+            CommandPattern {
+                command: "find".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-name".to_string(),
+                    "-type".to_string(),
+                    "-exec".to_string(),
+                    "-size".to_string(),
+                    "-perm".to_string(),
+                    "-mtime".to_string(),
+                ],
+            },
+        );
+        
+        // echo command
+        patterns.insert(
+            "echo".to_string(),
+            CommandPattern {
+                command: "echo".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-n".to_string(),
+                    "-e".to_string(),
+                ],
+            },
+        );
+        
+        // cat command
+        patterns.insert(
+            "cat".to_string(),
+            CommandPattern {
+                command: "cat".to_string(),
+                args: vec![],
+                flags: vec![
+                    "-n".to_string(),
+                    "-A".to_string(),
+                ],
+            },
+        );
     }
 
     /// Get a command pattern by command name
