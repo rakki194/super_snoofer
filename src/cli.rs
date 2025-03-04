@@ -1,4 +1,8 @@
+#![warn(clippy::all, clippy::pedantic)]
+
 use clap::{Parser, Subcommand};
+
+use crate::ollama::{DEFAULT_DOLPHIN_MODEL, DEFAULT_CODESTRAL_MODEL};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -13,6 +17,14 @@ pub struct Cli {
     /// Use Codestral model instead of Dolphin
     #[arg(long)]
     pub codestral: bool,
+    
+    /// Specify the standard model to use (overrides default)
+    #[arg(long, default_value_t = DEFAULT_DOLPHIN_MODEL.to_string())]
+    pub standard_model: String,
+    
+    /// Specify the code model to use (overrides default)
+    #[arg(long, default_value_t = DEFAULT_CODESTRAL_MODEL.to_string())]
+    pub code_model: String,
 
     /// Command line to check (for command not found handler)
     #[arg(name = "command", last = true, allow_hyphen_values = true)]
@@ -79,6 +91,12 @@ pub enum Commands {
         /// Use Codestral model instead of Dolphin
         #[arg(long)]
         codestral: bool,
+        /// Specify the standard model to use (overrides default)
+        #[arg(long, default_value_t = DEFAULT_DOLPHIN_MODEL.to_string())]
+        standard_model: String,
+        /// Specify the code model to use (overrides default)
+        #[arg(long, default_value_t = DEFAULT_CODESTRAL_MODEL.to_string())]
+        code_model: String,
     },
 }
 
@@ -94,6 +112,8 @@ impl Cli {
                     command: None,
                     prompt: None,
                     codestral: false,
+                    standard_model: DEFAULT_DOLPHIN_MODEL.to_string(),
+                    code_model: DEFAULT_CODESTRAL_MODEL.to_string(),
                     command_to_check: args[sep_pos + 1..].to_vec(),
                 };
             }

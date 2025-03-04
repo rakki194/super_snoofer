@@ -1,5 +1,7 @@
+#![warn(clippy::all, clippy::pedantic)]
+
 use anyhow::{anyhow, Result};
-use std::io::Write;
+use std::{io::Write, process::Command};
 use crate::{CommandCache, HistoryTracker};
 
 /// Learn a command correction
@@ -142,15 +144,16 @@ pub fn check_command_line(command: &str) -> Result<()> {
 
 /// Process a full command line
 pub fn process_full_command(command: &str) -> Result<()> {
-    // Split the command into program and arguments
-    let mut parts = command.split_whitespace();
-    let program = parts.next().ok_or_else(|| anyhow!("Empty command"))?;
-    let args: Vec<&str> = parts.collect();
-    
-    // Execute the command
-    let status = std::process::Command::new(program)
-        .args(args)
-        .status()?;
+    // Execute the command through the shell to ensure PATH is used
+    let status = if cfg!(target_os = "windows") {
+        Command::new("cmd")
+            .args(["/C", command])
+            .status()?
+    } else {
+        Command::new("sh")
+            .args(["-c", command])
+            .status()?
+    };
     
     if !status.success() {
         return Err(anyhow!("Command failed with status: {}", status));

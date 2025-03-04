@@ -1,3 +1,5 @@
+#![warn(clippy::all, clippy::pedantic)]
+
 use anyhow::Result;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -24,6 +26,8 @@ pub struct UiState {
     pub response_text: String,
     pub last_response: Option<String>,
     pub use_codestral: bool,
+    pub code_model: String,
+    pub standard_model: String,
 }
 
 pub struct TuiApp {
@@ -41,6 +45,10 @@ impl TuiApp {
         let backend = CrosstermBackend::new(stdout);
         let terminal = ratatui::Terminal::new(backend)?;
 
+        // Get model names from the ollama client config
+        let standard_model = ollama.model_config.standard_model.clone();
+        let code_model = ollama.model_config.code_model.clone();
+
         let state = UiState {
             input: String::new(),
             cursor_position: 0,
@@ -50,6 +58,8 @@ impl TuiApp {
             response_text: String::new(),
             last_response: None,
             use_codestral,
+            code_model,
+            standard_model,
         };
 
         Ok(Self {
@@ -123,10 +133,6 @@ impl TuiApp {
         self.state.thinking_visible = true;  // Keep status visible to show completion state
         Ok(())
     }
-
-    pub fn toggle_thinking(&mut self) {
-        self.state.thinking_visible = !self.state.thinking_visible;
-    }
 }
 
 impl Drop for TuiApp {
@@ -193,11 +199,18 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
     f.render_widget(status, chunks[1]);
 
     // Response area with model indicator and word wrap
-    let model_indicator = if app.use_codestral { "🧠 Codestral" } else { "🐬 Dolphin" };
+    // Get the model name from the OllamaClient's model_config
+    let model_name = if app.use_codestral {
+        &app.code_model
+    } else {
+        &app.standard_model
+    };
+    
+    let model_icon = if app.use_codestral { "🧠" } else { "🐬" };
     let response = Paragraph::new(app.response_text.as_str())
         .block(Block::default()
             .borders(Borders::ALL)
-            .title(format!("Response ({})", model_indicator)))
+            .title(format!("Response ({} {})", model_icon, model_name)))
         .wrap(ratatui::widgets::Wrap { trim: true })    // Enable word wrap for response
         .scroll((0, app.scroll));                       // Enable scrolling
     f.render_widget(response, chunks[2]);

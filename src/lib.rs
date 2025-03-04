@@ -14,6 +14,7 @@ pub mod tui;
 // Re-export key structs and traits for easier access
 pub use cache::CommandCache;
 pub use command::CommandPatterns;
+pub use commands::*;  // Re-export all command functions
 pub use history::{CommandHistoryEntry, HistoryManager, HistoryTracker};
 pub use shell::{
     add_alias,

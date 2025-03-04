@@ -1,3 +1,5 @@
+#![warn(clippy::all, clippy::pedantic)]
+
 pub mod aliases;
 pub mod integration;
 
