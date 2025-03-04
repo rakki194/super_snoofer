@@ -1,9 +1,7 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use crate::{
-    shell::{add_to_shell_config, detect_shell_config},
-    HistoryTracker,
-};
+use crate::shell::aliases::{add_to_shell_config, detect_shell_config};
+use crate::HistoryTracker;
 use anyhow::Result;
 use colored::Colorize;
 use std::io::Write;

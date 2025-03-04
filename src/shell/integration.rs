@@ -4,144 +4,139 @@ use std::{
     io::Write,
 };
 
-pub mod aliases {
-    use anyhow::Result;
-    use std::{collections::HashMap, fs};
-
-    pub fn parse_shell_aliases() -> Result<HashMap<String, String>> {
-        let mut aliases = HashMap::new();
-        
-        // Get home directory
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-
-        // Parse .zshrc and related files
-        let zsh_files = vec![
-            home_dir.join(".zshrc"),
-            home_dir.join("toolkit/zsh/core_shell.zsh"),
-            home_dir.join("toolkit/zsh/docker.zsh"),
-            home_dir.join("toolkit/zsh/git.zsh"),
-            home_dir.join("toolkit/zsh/personal.zsh"),
-        ];
-
-        for file_path in zsh_files {
-            if file_path.exists() {
-                let content = fs::read_to_string(&file_path)?;
-                for line in content.lines() {
-                    let line = line.trim();
-                    if line.starts_with("alias ") {
-                        if let Some((name, command)) = parse_alias_line(line) {
-                            aliases.insert(name, command);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(aliases)
-    }
-
-    fn parse_alias_line(line: &str) -> Option<(String, String)> {
-        let line = line.trim_start_matches("alias ").trim();
-        if let Some((name, command)) = line.split_once('=') {
-            let name = name.trim();
-            let mut command = command.trim();
-            
-            // Remove surrounding quotes if present
-            if (command.starts_with('\'') && command.ends_with('\'')) || 
-               (command.starts_with('"') && command.ends_with('"')) {
-                command = &command[1..command.len() - 1];
-            }
-            
-            Some((name.to_string(), command.to_string()))
-        } else {
-            None
-        }
-    }
-}
-
-pub fn detect_shell_config(alias_name: &str, command: &str) -> Result<(String, String, String)> {
-    let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let zshrc_path = home_dir.join(".zshrc");
-    if zshrc_path.exists() {
-        let alias_line = format!("alias {}='{}'", alias_name, command);
-        return Ok(("zsh".to_string(), zshrc_path.to_string_lossy().into(), alias_line));
-    }
-    Err(anyhow::anyhow!("No supported shell config found"))
-}
-
-pub fn add_to_shell_config(_shell_type: &str, config_path: &std::path::Path, config: &str) -> Result<()> {
-    let mut file = fs::OpenOptions::new()
-        .append(true)
-        .open(config_path)?;
-    writeln!(file, "\n{}", config)?;
-    Ok(())
-}
-
 pub fn install_shell_integration() -> Result<()> {
     let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let config_dir = home_dir.join(".config").join("super_snoofer");
+    let integration_path = config_dir.join("shell_integration.zsh");
     let zshrc_path = home_dir.join(".zshrc");
 
+    // Create config directory if it doesn't exist
+    fs::create_dir_all(&config_dir)?;
+
     // Create the integration script
-    let script = r#"
-# Super Snoofer Integration
-__super_snoofer_check_command_line() {
+    let script = r#"# Super Snoofer Integration
+# Flag to prevent double execution
+typeset -g __super_snoofer_executing=0
+
+function __super_snoofer_check_command_line() {
     local cmd="$1"
+    shift
+    local args=("$@")
     
-    # Skip empty commands and super_snoofer itself
-    [[ -z "$cmd" || "$cmd" =~ ^super_snoofer ]] && return 0
+    # Skip if we're already executing a super_snoofer command
+    if (( __super_snoofer_executing )); then
+        __super_snoofer_executing=0
+        return 0
+    fi
     
-    # Handle both > and >> commands
-    if [[ "$cmd" =~ ^[>]{1,2}[[:space:]]*$ || "$cmd" =~ ^[>]{1,2}[[:space:]]+ ]]; then
-        # Extract the prompt, removing the > or >> prefix and leading whitespace
-        local prompt
-        if [[ "$cmd" =~ ^">>" ]]; then
-            prompt="${cmd#>>}"
-            prompt="${prompt## }"
-            # Launch TUI even if empty for >>
-            command super_snoofer --prompt "${prompt:-}" --codestral
-            return $?
-        else
-            prompt="${cmd#>}"
-            prompt="${prompt## }"
-            # Launch TUI even if empty for >
-            command super_snoofer --prompt "${prompt:-}"
-            return $?
-        fi
+    # Skip empty commands, super_snoofer itself, and commands starting with space
+    [[ -z "$cmd" || "$cmd" =~ ^[[:space:]]+ || "$cmd" =~ ^super_snoofer ]] && return 0
+    
+    # Handle ] and ]] commands
+    if [[ "$cmd" == "]" ]]; then
+        __super_snoofer_executing=1
+        command super_snoofer --prompt ""
+        return $?
+    elif [[ "$cmd" == "]]" ]]; then
+        __super_snoofer_executing=1
+        command super_snoofer --prompt "" --codestral
+        return $?
+    elif [[ "$cmd" =~ ^"][[:space:]]+" ]]; then
+        local prompt="${cmd#]}"
+        prompt="${prompt## }"
+        __super_snoofer_executing=1
+        command super_snoofer --prompt "$prompt"
+        return $?
+    elif [[ "$cmd" =~ ^"]][[:space:]]+" ]]; then
+        local prompt="${cmd#]]}"
+        prompt="${prompt## }"
+        __super_snoofer_executing=1
+        command super_snoofer --prompt "$prompt" --codestral
+        return $?
+    fi
+    
+    # Handle command not found (but ignore ] and ]] commands)
+    if ! command -v "$cmd" >/dev/null 2>&1 && [[ ! "$cmd" =~ '^(\]|\]\])' ]]; then
+        __super_snoofer_executing=1
+        command super_snoofer -- "$cmd" "${args[@]}"
+        return $?
     fi
     
     return 0
 }
 
-# Register the hook
+# Register Super Snoofer hook
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __super_snoofer_check_command_line
 
-# Prevent shell redirection for > and >>
-function _super_snoofer_gt() {
-    if [[ "$BUFFER" =~ ^[>]{1,2}([[:space:]]+.*)?$ ]]; then
+# Handle ] and ]] input
+function _super_snoofer_bracket() {
+    # If we have ]] with content
+    if [[ "$BUFFER" =~ '^]][[:space:]]+' ]]; then
         zle accept-line
-    else
-        zle self-insert
+        return
     fi
+    
+    # If we have ] with content
+    if [[ "$BUFFER" =~ '^][[:space:]]+' ]]; then
+        zle accept-line
+        return
+    fi
+    
+    # If we have an empty ]
+    if [[ "$BUFFER" == "]" ]]; then
+        # Check if the last character typed was also ]
+        if [[ "$LBUFFER" == "]" ]]; then
+            BUFFER="]]"
+            CURSOR=2  # Set cursor after the ]]
+            zle redisplay
+            return
+        fi
+        zle accept-line
+        return
+    fi
+    
+    # Default: insert ]
+    zle self-insert
 }
 
-# Register the widget for both > and >>
-zle -N _super_snoofer_gt
-bindkey ">" _super_snoofer_gt
+# Register the widget
+zle -N _super_snoofer_bracket
+bindkey "]" _super_snoofer_bracket
 
-# Add alias to prevent accidental redirection
-alias \>='_super_snoofer_gt'
-alias \>>='_super_snoofer_gt'
-"#;
+# Register command not found handler
+function command_not_found_handler() {
+    local cmd="$1"
+    shift
+    local args=("$@")
+    
+    if [[ ! "$cmd" =~ '^(\]|\]\])' ]]; then
+        __super_snoofer_executing=1
+        # Pass the command directly to super_snoofer without a subcommand
+        if [ ${#args[@]} -eq 0 ]; then
+            command super_snoofer -- "$cmd"
+        else
+            command super_snoofer -- "$cmd" "${args[@]}"
+        fi
+        return $?
+    fi
+    
+    return 127
+}"#;
 
-    // Append the integration script to .zshrc if it doesn't already exist
+    // Write the integration script to the dedicated file
+    fs::write(&integration_path, script)?;
+
+    // Add source line to .zshrc if it doesn't exist
+    let source_line = format!("\n# Source Super Snoofer integration\n[ -f {} ] && source {}", 
+        integration_path.display(), integration_path.display());
+    
     let zshrc_content = fs::read_to_string(&zshrc_path)?;
-    if !zshrc_content.contains("# Super Snoofer Integration") {
+    if !zshrc_content.contains(&source_line) {
         let mut file = fs::OpenOptions::new()
             .append(true)
             .open(&zshrc_path)?;
-        writeln!(file, "{}", script)?;
+        writeln!(file, "{}", source_line)?;
     }
 
     Ok(())
@@ -149,27 +144,36 @@ alias \>>='_super_snoofer_gt'
 
 pub fn uninstall_shell_integration() -> Result<()> {
     let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let config_dir = home_dir.join(".config").join("super_snoofer");
+    let integration_path = config_dir.join("shell_integration.zsh");
     let zshrc_path = home_dir.join(".zshrc");
 
-    // Read the current content
-    let content = fs::read_to_string(&zshrc_path)?;
+    // Remove the integration file if it exists
+    if integration_path.exists() {
+        fs::remove_file(&integration_path)?;
+    }
 
-    // Remove our integration block
+    // Remove the source line from .zshrc
+    let content = fs::read_to_string(&zshrc_path)?;
+    let integration_path_str = integration_path.to_string_lossy();
     let new_content = content
         .lines()
-        .take_while(|line| !line.contains("# Super Snoofer Integration"))
-        .chain(
-            content
-                .lines()
-                .skip_while(|line| !line.contains("# Super Snoofer Integration"))
-                .skip_while(|line| !line.contains("add-zsh-hook preexec __super_snoofer_check_command_line"))
-                .skip(1)
-        )
+        .filter(|line| !line.contains("Source Super Snoofer integration") && 
+                       !line.contains(&*integration_path_str))
         .collect::<Vec<_>>()
         .join("\n");
 
     // Write the updated content back
     fs::write(&zshrc_path, new_content)?;
+
+    // Try to remove config directory if empty
+    if config_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&config_dir) {
+            if entries.count() == 0 {
+                fs::remove_dir(&config_dir)?;
+            }
+        }
+    }
 
     Ok(())
 } 

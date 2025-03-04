@@ -1,91 +1,77 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use fancy_regex::Regex;
-use std::collections::HashMap;
-use std::fs;
-use std::hash::BuildHasher;
-use anyhow::{Context, Result};
-use std::path::PathBuf;
+use anyhow::Result;
+use std::{
+    collections::HashMap,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
+use crate::{CommandCache, HistoryTracker};
+
+/// Add a shell alias
+pub fn add_alias(name: &str, command: Option<&str>) -> Result<()> {
+    let command = command.unwrap_or("super_snoofer");
+    let (shell_type, config_path, alias_line) = detect_shell_config(name, command)?;
+    add_to_shell_config(&shell_type, std::path::Path::new(&config_path), &alias_line)?;
+    Ok(())
+}
+
+/// Suggest personalized shell aliases
+pub fn suggest_aliases() -> Result<()> {
+    let cache = CommandCache::load()?;
+    if !cache.is_history_enabled() {
+        println!("Command history tracking is disabled! Cannot generate suggestions. 🐺");
+        return Ok(());
+    }
+
+    let corrections = cache.get_frequent_corrections(5);
+    if corrections.is_empty() {
+        println!("No alias suggestions available yet! Keep using Super Snoofer to generate personalized suggestions. 🐺");
+        return Ok(());
+    }
+
+    for (_i, (command, count)) in corrections.iter().enumerate() {
+        let alias = if command.len() <= 3 {
+            command.to_string()
+        } else {
+            command[0..2].to_string()
+        };
+
+        println!("\nYou've used '{}' {} times! Let's create an alias for that.", command, count);
+        println!("\nSuggested alias: {} → {}", alias, command);
+        println!("\nTo add this alias to your shell configuration:");
+        println!("\nalias {}='{}'", alias, command);
+        
+        print!("\nWould you like me to add this alias to your shell configuration? (y/N) ");
+        std::io::stdout().flush()?;
+        
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        
+        if input.trim().eq_ignore_ascii_case("y") {
+            add_alias(&alias, Some(command))?;
+            println!("Added alias to your shell configuration! 🐺");
+        }
+    }
+    Ok(())
+}
 
 /// Parse shell aliases from various shell config files
-#[must_use]
 pub fn parse_shell_aliases() -> Result<HashMap<String, String>> {
     let mut aliases = HashMap::new();
-
-    // Try to parse aliases from different shell config files
-    if let Some(bash_aliases) = parse_bash_aliases() {
-        aliases.extend(bash_aliases);
-    }
-
-    if let Some(zsh_aliases) = parse_zsh_aliases() {
-        aliases.extend(zsh_aliases);
-    }
-
-    if let Some(fish_aliases) = parse_fish_aliases() {
-        aliases.extend(fish_aliases);
-    }
-
-    Ok(aliases)
-}
-
-/// Parse Bash aliases from .bashrc and .`bash_aliases`
-fn parse_bash_aliases() -> Option<HashMap<String, String>> {
-    let home = dirs::home_dir()?;
-    let mut aliases = HashMap::new();
-
-    // Check .bashrc
-    let bashrc_path = home.join(".bashrc");
-    if bashrc_path.exists() {
-        if let Ok(content) = fs::read_to_string(&bashrc_path) {
-            parse_bash_alias_content(&content, &mut aliases);
-        }
-    }
-
-    // Check .bash_aliases
-    let bash_aliases_path = home.join(".bash_aliases");
-    if bash_aliases_path.exists() {
-        if let Ok(content) = fs::read_to_string(&bash_aliases_path) {
-            parse_bash_alias_content(&content, &mut aliases);
-        }
-    }
-
-    Some(aliases)
-}
-
-/// Parse Bash/Zsh style alias definitions from content
-pub fn parse_bash_alias_content<S: BuildHasher>(
-    content: &str,
-    aliases: &mut HashMap<String, String, S>,
-) {
-    // Regular expression for alias: alias name='command' or alias name="command"
-    if let Ok(re) = Regex::new(r#"^\s*alias\s+([a-zA-Z0-9_-]+)=(['"])(.+?)\2"#) {
-        for line in content.lines() {
-            if let Ok(Some(caps)) = re.captures(line) {
-                let name_result = caps.get(1);
-                let cmd_result = caps.get(3);
-
-                if let (Some(name_match), Some(cmd_match)) = (name_result, cmd_result) {
-                    let name = name_match.as_str();
-                    let cmd = cmd_match.as_str();
-                    aliases.insert(name.to_string(), cmd.to_string());
-                }
-            }
-        }
-    }
-}
-
-/// Parse Zsh aliases from .zshrc
-fn parse_zsh_aliases() -> Option<HashMap<String, String>> {
-    let home = dirs::home_dir()?;
-    let mut aliases = HashMap::new();
+    
+    // Get home directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
 
     // Parse .zshrc and related files
     let zsh_files = vec![
-        home.join(".zshrc"),
-        home.join("toolkit/zsh/core_shell.zsh"),
-        home.join("toolkit/zsh/docker.zsh"),
-        home.join("toolkit/zsh/git.zsh"),
-        home.join("toolkit/zsh/personal.zsh"),
+        home_dir.join(".zshrc"),
+        home_dir.join("toolkit/zsh/core_shell.zsh"),
+        home_dir.join("toolkit/zsh/docker.zsh"),
+        home_dir.join("toolkit/zsh/git.zsh"),
+        home_dir.join("toolkit/zsh/personal.zsh"),
     ];
 
     for file_path in zsh_files {
@@ -96,28 +82,31 @@ fn parse_zsh_aliases() -> Option<HashMap<String, String>> {
         }
     }
 
-    // Check .zsh_aliases if it exists
-    let zsh_aliases_path = home.join(".zsh_aliases");
-    if zsh_aliases_path.exists() {
-        if let Ok(content) = fs::read_to_string(&zsh_aliases_path) {
-            parse_bash_alias_content(&content, &mut aliases);
-        }
-    }
+    Ok(aliases)
+}
 
-    // Check .oh-my-zsh/custom/aliases.zsh if it exists
-    let omz_path = home.join(".oh-my-zsh").join("custom").join("aliases.zsh");
-    if omz_path.exists() {
-        if let Ok(content) = fs::read_to_string(&omz_path) {
-            parse_bash_alias_content(&content, &mut aliases);
-        }
+/// Detect shell config file and generate alias line
+pub fn detect_shell_config(alias_name: &str, command: &str) -> Result<(String, String, String)> {
+    let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let zshrc_path = home_dir.join(".zshrc");
+    if zshrc_path.exists() {
+        let alias_line = format!("alias {}='{}'", alias_name, command);
+        return Ok(("zsh".to_string(), zshrc_path.to_string_lossy().into(), alias_line));
     }
+    Err(anyhow::anyhow!("No supported shell config found"))
+}
 
-    Some(aliases)
+/// Add configuration to shell config file
+pub fn add_to_shell_config(_shell_type: &str, config_path: &Path, config: &str) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(config_path)?;
+    writeln!(file, "\n{}", config)?;
+    Ok(())
 }
 
 fn parse_aliases_from_file(file_path: &PathBuf, aliases: &mut HashMap<String, String>) -> Result<()> {
-    let content = fs::read_to_string(file_path)
-        .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
+    let content = fs::read_to_string(file_path)?;
 
     for line in content.lines() {
         let line = line.trim();
@@ -129,18 +118,17 @@ fn parse_aliases_from_file(file_path: &PathBuf, aliases: &mut HashMap<String, St
 
         // Parse alias definitions
         if line.starts_with("alias ") {
-            parse_alias_line(line, aliases);
+            if let Some((name, command)) = parse_alias_line(line) {
+                aliases.insert(name, command);
+            }
         }
     }
 
     Ok(())
 }
 
-fn parse_alias_line(line: &str, aliases: &mut HashMap<String, String>) {
-    // Remove 'alias ' prefix
+fn parse_alias_line(line: &str) -> Option<(String, String)> {
     let line = line.trim_start_matches("alias ").trim();
-    
-    // Split on first '=' to separate alias name and command
     if let Some((name, command)) = line.split_once('=') {
         let name = name.trim();
         let mut command = command.trim();
@@ -151,100 +139,8 @@ fn parse_alias_line(line: &str, aliases: &mut HashMap<String, String>) {
             command = &command[1..command.len() - 1];
         }
         
-        aliases.insert(name.to_string(), command.to_string());
-    }
-}
-
-/// Parse Fish aliases from fish config
-fn parse_fish_aliases() -> Option<HashMap<String, String>> {
-    let home = dirs::home_dir()?;
-    let mut aliases = HashMap::new();
-
-    // Check fish config.fish
-    let config_path = home.join(".config").join("fish").join("config.fish");
-    if config_path.exists() {
-        if let Ok(content) = fs::read_to_string(&config_path) {
-            parse_fish_alias_content(&content, &mut aliases);
-        }
-    }
-
-    // Check fish functions directory for alias functions
-    let functions_dir = home.join(".config").join("fish").join("functions");
-    if functions_dir.exists() && functions_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&functions_dir) {
-            for entry in entries.filter_map(Result::ok) {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "fish") {
-                    if let Ok(content) = fs::read_to_string(&path) {
-                        // Extract alias name from file name
-                        if let Some(file_stem) = path.file_stem() {
-                            if let Some(name) = file_stem.to_str() {
-                                parse_fish_function_alias(&content, name, &mut aliases);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Some(aliases)
-}
-
-/// Parse aliases from fish config content
-fn parse_fish_alias_content<S: BuildHasher>(
-    content: &str,
-    aliases: &mut HashMap<String, String, S>,
-) {
-    // Fish aliases can be defined as: alias name='command' or using functions
-    // First try the alias command format
-    if let Ok(re) = Regex::new(r#"^\s*alias\s+([a-zA-Z0-9_-]+)=(['"])(.+?)\2"#) {
-        for line in content.lines() {
-            if let Ok(Some(caps)) = re.captures(line) {
-                let name_result = caps.get(1);
-                let cmd_result = caps.get(3);
-
-                if let (Some(name_match), Some(cmd_match)) = (name_result, cmd_result) {
-                    let name = name_match.as_str();
-                    let cmd = cmd_match.as_str();
-                    aliases.insert(name.to_string(), cmd.to_string());
-                }
-            }
-        }
-    }
-
-    // Also check for alias using the `alias` command without quotes
-    if let Ok(re2) = Regex::new(r#"^\s*alias\s+([a-zA-Z0-9_-]+)\s+(['"])(.*?)\2(;\s*|$)"#) {
-        for line in content.lines() {
-            if let Ok(Some(caps)) = re2.captures(line) {
-                let name_result = caps.get(1);
-                let cmd_result = caps.get(3);
-
-                if let (Some(name_match), Some(cmd_match)) = (name_result, cmd_result) {
-                    let name = name_match.as_str();
-                    let cmd = cmd_match.as_str();
-                    aliases.insert(name.to_string(), cmd.to_string());
-                }
-            }
-        }
-    }
-}
-
-/// Parse fish function files for aliases
-fn parse_fish_function_alias<S: BuildHasher>(
-    content: &str,
-    function_name: &str,
-    aliases: &mut HashMap<String, String, S>,
-) {
-    if let Ok(re) = Regex::new(r"(?:command|exec)\s+([^\s;]+)") {
-        // Try to find command references in the function
-        for caps in re.captures_iter(content).flatten() {
-            if let Some(cmd_match) = caps.get(1) {
-                let cmd = cmd_match.as_str();
-                aliases.insert(function_name.to_string(), cmd.to_string());
-                // We only need the first match
-                break;
-            }
-        }
+        Some((name.to_string(), command.to_string()))
+    } else {
+        None
     }
 }

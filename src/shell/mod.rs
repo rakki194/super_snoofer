@@ -1,7 +1,6 @@
 pub mod aliases;
-pub mod shell_config;
+pub mod integration;
 
-pub use self::shell_config::{
-    get_shell_config_path,
-    get_shell_config_paths,
-};
+// Re-export the public interface
+pub use integration::{install_shell_integration, uninstall_shell_integration};
+pub use aliases::{add_alias, suggest_aliases};
