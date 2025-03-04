@@ -1,32 +1,18 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseEvent, MouseEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use futures::StreamExt;
-use ollama_rs::{
-    generation::completion::{request::GenerationRequest, GenerationContext},
-    Ollama,
-};
 use ratatui::{
-    backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, Borders, Paragraph},
     Frame,
 };
 use std::{
-    env,
-    io::{self, stdout, Write},
+    io::{Write},
     process::{Command, exit},
-    sync::Arc,
-    time::{Duration, Instant},
 };
-use tokio::sync::Mutex;
 use clap::{Parser, Subcommand};
 
 // Import modules for functionality
@@ -636,8 +622,8 @@ fn process_correction_options(
 
 /// Process adding a permanent alias
 fn process_add_permanent_alias(typed_command: &str, correction: &str) -> Result<()> {
-    let alias_line = format!("alias {}='{}'", typed_command, correction);
-    super_snoofer::shell::add_to_shell_config(&alias_line)?;
+    let (shell_type, config_path, alias_line) = super_snoofer::shell::detect_shell_config(typed_command, correction)?;
+    super_snoofer::shell::add_to_shell_config(&shell_type, std::path::Path::new(&config_path), &alias_line)?;
     Ok(())
 }
 

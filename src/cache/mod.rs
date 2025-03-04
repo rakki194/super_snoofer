@@ -273,14 +273,14 @@ impl CommandCache {
     /// Find a similar command for a given command
     #[must_use]
     pub fn find_similar(&self, command: &str) -> Option<String> {
-        // First, check if we have this exact command
-        if self.commands.contains(command) || self.shell_aliases.contains_key(command) {
-            return Some(command.to_string());
-        }
-
-        // Second, check learned corrections - this should return the actual correction
+        // First, check learned corrections - this should take priority
         if let Some(correction) = self.learned_corrections.get(command) {
             return Some(correction.clone());
+        }
+
+        // Second, check if we have this exact command
+        if self.commands.contains(command) || self.shell_aliases.contains_key(command) {
+            return Some(command.to_string());
         }
 
         // Last resort: find the closest match using fuzzy matching
@@ -361,14 +361,14 @@ impl CommandCache {
     /// Find a similar command with frequency bias
     #[must_use]
     pub fn find_similar_with_frequency(&self, command: &str) -> Option<String> {
-        // First, check for exact match
-        if self.commands.contains(command) || self.shell_aliases.contains_key(command) {
-            return Some(command.to_string());
-        }
-
-        // Then, check learned corrections
+        // First, check learned corrections - this should take priority
         if let Some(correction) = self.learned_corrections.get(command) {
             return Some(correction.clone());
+        }
+
+        // Second, check if we have this exact command
+        if self.commands.contains(command) || self.shell_aliases.contains_key(command) {
+            return Some(command.to_string());
         }
 
         // Finally, use the history manager to find a similar command with frequency bias

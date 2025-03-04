@@ -104,7 +104,20 @@ impl HistoryManager {
             return Some(correction);
         }
 
-        None
+        // If no direct correction, look through our history for similar commands
+        let mut best_match = None;
+        let mut highest_freq = 0;
+
+        for (correction, freq) in &self.correction_frequency {
+            if let Some(similar) = find_similar_fn(correction) {
+                if *freq > highest_freq {
+                    best_match = Some(similar);
+                    highest_freq = *freq;
+                }
+            }
+        }
+
+        best_match
     }
 }
 

@@ -17,10 +17,10 @@ pub use command::CommandPatterns;
 pub use history::{CommandHistoryEntry, HistoryManager, HistoryTracker};
 pub use shell::{
     aliases,
-    add_to_shell_config,
-    detect_shell_config,
     install_shell_integration,
     uninstall_shell_integration,
+    add_to_shell_config,
+    detect_shell_config,
 };
 pub use ollama::OllamaClient;
 pub use tui::{TerminalUI, TuiApp};

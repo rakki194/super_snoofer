@@ -1,12 +1,13 @@
 #![warn(clippy::all, clippy::pedantic)]
 
 use crate::{
-    shell::add_to_shell_config,
+    shell::{add_to_shell_config, detect_shell_config},
     HistoryTracker,
 };
 use anyhow::Result;
 use colored::Colorize;
 use std::io::Write;
+use std::path::Path;
 
 /// Generate a personalized alias suggestion based on command history
 ///
@@ -61,8 +62,10 @@ pub fn suggest_alias_command() -> Result<()> {
     let response = response.trim().to_lowercase();
 
     if response == "y" || response == "yes" {
-        let alias_line = format!("alias {}='{}'", alias_name, command);
-        add_to_shell_config(&alias_line)?;
+        // First detect the shell config
+        let (shell_type, config_path, alias_line) = detect_shell_config(&alias_name, command)?;
+        // Then add the alias to the config
+        add_to_shell_config(&shell_type, Path::new(&config_path), &alias_line)?;
         println!("✨ Alias added successfully!");
     } else {
         println!("No problem! You can add the alias manually whenever you're ready.");

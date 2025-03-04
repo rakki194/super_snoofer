@@ -60,22 +60,20 @@ pub mod aliases {
     }
 }
 
-pub fn detect_shell_config() -> Result<String> {
+pub fn detect_shell_config(alias_name: &str, command: &str) -> Result<(String, String, String)> {
     let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let zshrc_path = home_dir.join(".zshrc");
     if zshrc_path.exists() {
-        return Ok(zshrc_path.to_string_lossy().into());
+        let alias_line = format!("alias {}='{}'", alias_name, command);
+        return Ok(("zsh".to_string(), zshrc_path.to_string_lossy().into(), alias_line));
     }
     Err(anyhow::anyhow!("No supported shell config found"))
 }
 
-pub fn add_to_shell_config(config: &str) -> Result<()> {
-    let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let zshrc_path = home_dir.join(".zshrc");
-
+pub fn add_to_shell_config(_shell_type: &str, config_path: &std::path::Path, config: &str) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .append(true)
-        .open(zshrc_path)?;
+        .open(config_path)?;
     writeln!(file, "\n{}", config)?;
     Ok(())
 }
