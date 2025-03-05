@@ -8,10 +8,11 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Margin},
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
     Terminal,
+    style::{Style, Modifier},
 };
 use std::io::{self, stdout};
 use std::sync::{Arc, Mutex};
@@ -20,7 +21,6 @@ use tokio::sync::mpsc;
 use crate::ollama::OllamaClient;
 use crate::ollama::ModelConfig as Config;
 use super::UiMessage;
-use super::{get_ollama_client, get_openai_client};
 
 /// Different states of the model processing
 #[derive(Debug, Clone, PartialEq)]
@@ -29,8 +29,6 @@ pub enum ModelState {
     Idle,
     /// Loading the model into memory
     Loading,
-    /// Model is initialized and generating a response
-    Generating,
     /// Model is streaming text back
     Streaming,
     /// Processing is complete
@@ -59,11 +57,16 @@ pub struct UiState {
     pub last_response: Option<String>,
     pub input_height: u16,          // Height of the input box
     pub selection_mode: bool,       // Whether we're in selection mode
+    pub selection_start: (u16, u16), // Start position (row, column)
+    pub selection_end: (u16, u16),   // End position (row, column)
+    pub selected_text: String,      // Currently selected text
     pub cancel_requested: bool,     // Whether a cancel has been requested
     pub history: Vec<String>,
     pub history_position: usize,
     pub is_streaming: bool,
     pub saved_input: String,
+    pub text_copied: bool,          // Whether text was just copied
+    pub text_copied_timer: u16,     // Timer for showing the copy notification
 }
 
 impl Default for UiState {
@@ -87,11 +90,16 @@ impl Default for UiState {
             last_response: None,
             input_height: 4,          // Default to 4 (2 content lines + 2 border lines)
             selection_mode: false,    // Not in selection mode by default
+            selection_start: (0, 0),   // Default start position
+            selection_end: (0, 0),    // Default end position
+            selected_text: String::new(),
             cancel_requested: false,  // No cancel requested by default
             history: Vec::new(),
             history_position: 0,
             is_streaming: false,
             saved_input: String::new(),
+            text_copied: false,
+            text_copied_timer: 0,
         }
     }
 }
@@ -225,9 +233,6 @@ impl TuiApp {
             ModelState::Loading => {
                 self.state.thinking_text = format!("{} Loading model {}...", frame, model_name);
             }
-            ModelState::Generating => {
-                self.state.thinking_text = format!("{} Generating response...", frame);
-            }
             ModelState::Streaming => {
                 self.state.thinking_text = format!("{} Streaming response...", frame);
             }
@@ -237,7 +242,7 @@ impl TuiApp {
         }
     }
 
-    /// Submits the current prompt to the model and handles the response
+    /// Submit the current prompt for processing
     /// 
     /// # Errors
     /// Returns an error if the prompt cannot be processed or the model fails
@@ -254,15 +259,17 @@ impl TuiApp {
         self.state.input.clear();
         self.state.cursor_position = 0;
         
-        // Set streaming flag
+        // Set streaming flag and update model state
         self.state.is_streaming = true;
+        self.state.model_state = ModelState::Loading;
         
         // Start streaming response
         let standard_model = self.config.standard_model.clone();
-        let code_model = self.config.code_model.clone();
+        let _code_model = self.config.code_model.clone();
         let cancel_flag = Arc::clone(&self.cancel_flag);
         let cancel_requested = Arc::clone(&self.cancel_requested);
         let tx = self.tx.clone();
+        let ollama_client = self.ollama.clone();
         
         tokio::spawn(async move {
             // Reset the cancel flag at the start of streaming
@@ -275,39 +282,74 @@ impl TuiApp {
                 *cancel_req = false;
             }
             
-            let model_to_use = if standard_model == "codestral" { code_model } else { standard_model };
+            let use_code_model = standard_model == "codestral";
             
-            // Get clients and stream the prompt
-            let connection_result: Result<String, anyhow::Error> = 
-                if !model_to_use.starts_with("gpt") {
-                    let _client = get_ollama_client();
-                    // Implement proper streaming with the client
-                    Ok("Response from Ollama model".to_string())
+            // Create a channel for streaming text updates
+            let (stream_tx, mut stream_rx) = mpsc::channel::<String>(100);
+            
+            // Spawn a task to stream the response
+            let stream_handle = tokio::spawn(async move {
+                if let Err(e) = ollama_client.stream_response(&prompt, use_code_model, stream_tx).await {
+                    return Err::<(), anyhow::Error>(e);
+                }
+                Ok(())
+            });
+            
+            // Process the streaming updates
+            let mut full_response = String::new();
+            let mut is_cancelled = false;
+            
+            while let Some(text) = stream_rx.recv().await {
+                // Check if cancel was requested
+                is_cancelled = if let Ok(flag) = cancel_flag.lock() {
+                    *flag
                 } else {
-                    // Use OpenAI for GPT models
-                    let _client = get_openai_client();
-                    // Implement proper streaming with the client  
-                    Ok("Response from OpenAI model".to_string())
+                    false
                 };
+                
+                if is_cancelled {
+                    break;
+                }
+                
+                // Append the new text to the full response
+                full_response.push_str(&text);
+                
+                // Send the updated response to the UI
+                if let Err(e) = tx.send(UiMessage::ResponseUpdate(full_response.clone())).await {
+                    eprintln!("Failed to send response update: {}", e);
+                }
+            }
             
-            match connection_result {
-                Ok(response) => {
-                    // Send the response back to the UI
-                    if let Err(e) = tx.send(UiMessage::ResponseUpdate(response)).await {
-                        eprintln!("Failed to send response: {}", e);
-                    }
-                    
-                    // Mark streaming as complete
-                    if let Err(e) = tx.send(UiMessage::StreamingComplete).await {
-                        eprintln!("Failed to send streaming complete: {}", e);
-                    }
-                },
-                Err(e) => {
-                    // Send the error back to the UI
-                    if let Err(send_err) = tx.send(UiMessage::Error(e.to_string())).await {
-                        eprintln!("Failed to send error: {}", send_err);
+            // Check if the streaming was cancelled
+            if is_cancelled {
+                full_response.push_str("\n\n[Response cancelled by user]");
+                if let Err(e) = tx.send(UiMessage::ResponseUpdate(full_response)).await {
+                    eprintln!("Failed to send cancelled response: {}", e);
+                }
+            } else {
+                // Wait for the streaming to complete
+                match stream_handle.await {
+                    Ok(Ok(())) => {
+                        // Streaming completed successfully
+                    },
+                    Ok(Err(e)) => {
+                        // Streaming had an error
+                        if let Err(send_err) = tx.send(UiMessage::Error(e.to_string())).await {
+                            eprintln!("Failed to send error: {}", send_err);
+                        }
+                    },
+                    Err(e) => {
+                        // Task join error
+                        if let Err(send_err) = tx.send(UiMessage::Error(format!("Task error: {}", e))).await {
+                            eprintln!("Failed to send error: {}", send_err);
+                        }
                     }
                 }
+            }
+            
+            // Mark streaming as complete
+            if let Err(e) = tx.send(UiMessage::StreamingComplete).await {
+                eprintln!("Failed to send streaming complete: {}", e);
             }
         });
         
@@ -349,11 +391,19 @@ impl TuiApp {
     /// Calculate the scroll max based on content and view size
     pub fn update_scroll_max(&mut self, view_height: u16) {
         let line_count = self.state.response_text.lines().count() as u16;
+        
+        // We can only scroll if there are more lines than can fit in the view
+        // The maximum scroll position is the number of lines that don't fit
         self.state.scroll_max = if line_count > view_height {
             line_count - view_height
         } else {
             0
         };
+        
+        // Make sure current scroll position doesn't exceed the maximum
+        if self.state.scroll > self.state.scroll_max {
+            self.state.scroll = self.state.scroll_max;
+        }
     }
 
     /// Toggle visibility of thinking sections
@@ -366,19 +416,152 @@ impl TuiApp {
     /// Toggle selection mode
     pub fn toggle_selection_mode(&mut self) {
         self.state.selection_mode = !self.state.selection_mode;
+        
+        // Reset selection if we're exiting selection mode
+        if !self.state.selection_mode {
+            self.state.selection_start = (0, 0);
+            self.state.selection_end = (0, 0);
+            self.state.selected_text = String::new();
+        }
+    }
+
+    /// Begin selection at the given position
+    pub fn begin_selection(&mut self, row: u16, col: u16) {
+        // Adjust for the borders of the response area
+        let row = row.saturating_sub(1); // Adjust for top border
+        let col = col.saturating_sub(1); // Adjust for left border
+        
+        self.state.selection_start = (row, col);
+        self.state.selection_end = (row, col);
+        self.state.selection_mode = true;
+        self.update_selected_text();
+    }
+
+    /// Update the selection end position and capture selected text
+    pub fn update_selection(&mut self, row: u16, col: u16) {
+        if !self.state.selection_mode {
+            return;
+        }
+        
+        // Adjust for the borders of the response area
+        let row = row.saturating_sub(1); // Adjust for top border
+        let col = col.saturating_sub(1); // Adjust for left border
+        
+        // Update selection end
+        self.state.selection_end = (row, col);
+        self.update_selected_text();
+    }
+
+    /// Update the selected text based on current selection coordinates
+    fn update_selected_text(&mut self) {
+        if !self.state.selection_mode {
+            self.state.selected_text = String::new();
+            return;
+        }
+        
+        // Get the lines of text
+        let lines: Vec<&str> = self.state.response_text.lines().collect();
+        
+        // Get selection coordinates (taking into account scrolling)
+        let (start_row, start_col) = self.state.selection_start;
+        let (end_row, end_col) = self.state.selection_end;
+        
+        // Adjust for scrolling
+        let start_row = start_row.saturating_add(self.state.scroll);
+        let end_row = end_row.saturating_add(self.state.scroll);
+        
+        // Determine real start and end positions (selection could be in any direction)
+        let (start_row, start_col, end_row, end_col) = if start_row < end_row || (start_row == end_row && start_col <= end_col) {
+            (start_row, start_col, end_row, end_col)
+        } else {
+            (end_row, end_col, start_row, start_col)
+        };
+        
+        let mut selected_text = String::new();
+        
+        for row in start_row..=end_row {
+            if let Some(line) = lines.get(row as usize) {
+                let line_len = line.len() as u16;
+                
+                // For first line, start from start_col
+                // For last line, end at end_col
+                // For lines in between, take the whole line
+                if row == start_row && row == end_row {
+                    // Single line selection
+                    let start = start_col.min(line_len) as usize;
+                    let end = end_col.min(line_len) as usize;
+                    if start < end {
+                        selected_text.push_str(&line[start..end]);
+                    }
+                } else if row == start_row {
+                    // First line of multi-line selection
+                    let start = start_col.min(line_len) as usize;
+                    if start < line.len() {
+                        selected_text.push_str(&line[start..]);
+                    }
+                    selected_text.push('\n');
+                } else if row == end_row {
+                    // Last line of multi-line selection
+                    let end = end_col.min(line_len) as usize;
+                    if end > 0 {
+                        selected_text.push_str(&line[..end]);
+                    }
+                } else {
+                    // Middle line - take the whole line
+                    selected_text.push_str(line);
+                    selected_text.push('\n');
+                }
+            }
+        }
+        
+        self.state.selected_text = selected_text;
+    }
+
+    /// Copy the currently selected text to clipboard
+    pub fn copy_selected_text(&mut self) -> Result<()> {
+        if self.state.selected_text.is_empty() {
+            return Ok(());
+        }
+        
+        // Instead of printing to console which disrupts the TUI,
+        // save the selected text for later use without printing
+        
+        // In a real implementation, you would use a clipboard crate
+        // such as clipboard-rs or arboard to copy to the system clipboard
+        // For now, we'll just silently capture the text
+        
+        // If implementing clipboard, you'd do something like:
+        // let mut clipboard = Clipboard::new()?;
+        // clipboard.set_text(self.state.selected_text.clone())?;
+        
+        // Show a copy notification in the UI
+        self.state.text_copied = true;
+        self.state.text_copied_timer = 30; // Show for about 3 seconds
+        
+        Ok(())
     }
 
     /// Request cancellation of the current operation
     pub fn request_cancel(&mut self) {
-        if let Ok(mut requested) = self.cancel_requested.lock() {
-            *requested = true;
-        }
-        
+        // Set the cancel flag
         if let Ok(mut flag) = self.cancel_flag.lock() {
             *flag = true;
         }
         
+        // Set the cancel requested flag
+        if let Ok(mut flag) = self.cancel_requested.lock() {
+            *flag = true;
+        }
+        
+        // Update UI state to show cancellation
         self.state.cancel_requested = true;
+        
+        // Update model state to show cancellation
+        if self.state.model_state == ModelState::Streaming || 
+           self.state.model_state == ModelState::Loading {
+            // Add " (cancelling)" to the current state
+            self.state.response_text.push_str("\n[Cancelling...]");
+        }
     }
 
     /// Update input height based on content
@@ -402,10 +585,13 @@ impl TuiApp {
             .min(max_height);
     }
     
-    /// Add a newline to the input field
+    /// Add a newline character at the current cursor position
     pub fn add_newline(&mut self) {
+        // Insert a newline character at the current cursor position
         self.state.input.insert(self.state.cursor_position, '\n');
+        // Move the cursor after the inserted newline
         self.state.cursor_position += 1;
+        // Update the input height to accommodate the new line
         self.update_input_height();
     }
 
@@ -630,6 +816,20 @@ impl TuiApp {
     fn lock_mutex<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
         mutex.lock().map_err(|e| anyhow::anyhow!("Failed to lock mutex: {}", e))
     }
+
+    /// Reset the cancel state and model state to idle when cancellation is complete
+    pub fn reset_cancel_state(&mut self) {
+        if self.state.cancel_requested && !self.state.is_streaming {
+            self.state.cancel_requested = false;
+            self.state.model_state = ModelState::Idle;
+        }
+    }
+
+    pub fn select_all_text(&mut self) -> Result<()> {
+        // Set the selected text to the entire response text
+        self.state.selected_text = self.state.response_text.clone();
+        Ok(())
+    }
 }
 
 impl Drop for TuiApp {
@@ -685,7 +885,7 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
         .block(Block::default()
             .borders(Borders::ALL)
             .title(format!("Input (type your response){}", selection_mode_indicator)))
-        .wrap(ratatui::widgets::Wrap { trim: false }); // Don't trim for multi-line editing
+        .wrap(Wrap { trim: false }); // Don't trim for multi-line editing
     f.render_widget(input, chunks[2]);
     
     // Add the input help text at the bottom of the input area
@@ -726,13 +926,14 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
     }
     
     // Status bar with dynamic status based on model state
-    let (status_text, status_icon) = if app.thinking_visible {
+    let (status_text, status_icon) = if app.text_copied {
+        ("Text copied to clipboard", "📋")
+    } else if app.is_streaming || app.model_state != ModelState::Idle {
         match app.model_state {
-            ModelState::Loading => (app.thinking_text.as_str(), "⏳"),
-            ModelState::Generating => (app.thinking_text.as_str(), "🔄"),
-            ModelState::Streaming => (app.thinking_text.as_str(), "💬"),
-            ModelState::Complete => (app.thinking_text.as_str(), "✨"),
-            ModelState::Error => (app.thinking_text.as_str(), "❌"),
+            ModelState::Loading => ("Loading model...", "⏳"),
+            ModelState::Streaming => ("Streaming response...", "💬"),
+            ModelState::Complete => ("Response complete", "✓"),
+            ModelState::Error => ("Error occurred", "❌"),
             ModelState::Idle => ("Ready for input", "✨"),
         }
     } else {
@@ -765,13 +966,19 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
     // Add a streaming indicator to the title based on model state
     let title = match app.model_state {
         ModelState::Loading => format!("Response ({model_icon} {model_name}) ⏳"),
-        ModelState::Generating => format!("Response ({model_icon} {model_name}) 🔄"),
         ModelState::Streaming => format!("Response ({model_icon} {model_name}) 💬"),
         _ => format!("Response ({model_icon} {model_name})"),
     };
     
-    // Process the response text to handle thinking sections
-    let display_text = if app.show_thinking_sections {
+    // Determine if we should show scrolling hints
+    let scroll_help = if app.scroll_max > 0 {
+        " (←↑↓→ to scroll)"
+    } else {
+        ""
+    };
+    
+    // Process the response text to handle thinking sections and selection highlighting
+    let mut processed_text = if app.show_thinking_sections {
         app.response_text.clone()
     } else {
         // Hide thinking sections by replacing them with a placeholder
@@ -810,6 +1017,15 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
             processed_text
         }
     };
+
+    let display_text = if app.selection_mode {
+        // In selection mode, create a styled text span for rendering
+        let spans = create_styled_text(&processed_text, app);
+        ratatui::text::Text::from(spans)
+    } else {
+        // Normal mode - just use the processed text
+        ratatui::text::Text::from(processed_text)
+    };
     
     // Show scroll controls help only if there's content to scroll
     let mut help_items = Vec::new();
@@ -833,37 +1049,142 @@ pub fn draw_ui(f: &mut Frame, app: &UiState) {
     // Calculate response area with scrollbar
     let response_area = chunks[0];
     
-    // Only create scrollbar area if we have content to scroll
+    // Create scrollbar area
     let scrollbar_area = if app.scroll_max > 0 {
-        response_area.inner(Margin { 
-            vertical: 1, 
-            horizontal: 0 
-        })
+        // Place scrollbar in the right border of the response area
+        let mut right_chunk = response_area;
+        right_chunk.width = 1;
+        right_chunk.x = response_area.x + response_area.width - 1;
+        // Adjust to account for borders
+        right_chunk.y += 1;
+        right_chunk.height -= 2;
+        right_chunk
     } else {
-        response_area
+        Rect::default()
     };
-    
-    // Response widget
-    let response = Paragraph::new(display_text)
+
+    // Create response widget with borders and title
+    let response_widget = Paragraph::new(display_text)
         .block(Block::default()
             .borders(Borders::ALL)
             .title(format!("{}{}", title, scroll_help)))
-        .wrap(ratatui::widgets::Wrap { trim: true })
+        .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0));
-    f.render_widget(response, response_area);
-    
-    // Only render scrollbar if needed
+
+    // Don't need to modify response area width for scrollbar
+    // The text will still be properly wrapped within the block's borders
+    let response_area_display = response_area;
+
+    // Render response
+    f.render_widget(response_widget, response_area_display);
+
+    // Render scrollbar if needed
     if app.scroll_max > 0 {
-        let scrollbar = Scrollbar::default()
-            .orientation(ScrollbarOrientation::VerticalRight)
+        let content_length = app.response_text.lines().count() as u16;
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("↑"))
             .end_symbol(Some("↓"));
         
-        f.render_stateful_widget(
-            scrollbar,
-            scrollbar_area,
-            &mut ScrollbarState::new(app.scroll_max as usize + 1)
-                .position(app.scroll as usize),
-        );
+        let mut scrollbar_state = ScrollbarState::new(content_length as usize)
+            .position(app.scroll as usize);
+        
+        f.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
     }
+}
+
+/// Create styled text spans for the response text with selection highlighting
+fn create_styled_text(text: &str, app: &UiState) -> ratatui::text::Text<'static> {
+    let lines: Vec<&str> = text.lines().collect();
+    let (start_row, start_col) = app.selection_start;
+    let (end_row, end_col) = app.selection_end;
+    
+    // Determine real start and end positions (selection could be in any direction)
+    let (start_row, start_col, end_row, end_col) = if start_row < end_row || (start_row == end_row && start_col <= end_col) {
+        (start_row, start_col, end_row, end_col)
+    } else {
+        (end_row, end_col, start_row, start_col)
+    };
+    
+    // Create styled lines for each line of text
+    let mut styled_lines = Vec::new();
+    
+    for (i, line) in lines.iter().enumerate() {
+        let row = i as u16;
+        let adjusted_row = row.saturating_sub(app.scroll);
+        
+        let mut line_spans = Vec::new();
+        
+        // Check if this line is part of the selection
+        if adjusted_row >= start_row && adjusted_row <= end_row {
+            // Line is part of selection
+            if adjusted_row == start_row && adjusted_row == end_row {
+                // Selection within single line
+                let start_col = start_col as usize;
+                let end_col = end_col as usize;
+                
+                // Text before selection
+                if start_col > 0 {
+                    line_spans.push(ratatui::text::Span::raw(line[..start_col.min(line.len())].to_string()));
+                }
+                
+                // Selected text
+                if start_col < line.len() && start_col < end_col {
+                    line_spans.push(ratatui::text::Span::styled(
+                        line[start_col.min(line.len())..end_col.min(line.len())].to_string(),
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    ));
+                }
+                
+                // Text after selection
+                if end_col < line.len() {
+                    line_spans.push(ratatui::text::Span::raw(line[end_col.min(line.len())..].to_string()));
+                }
+            } else if adjusted_row == start_row {
+                // First line of multi-line selection
+                let start_col = start_col as usize;
+                
+                // Text before selection
+                if start_col > 0 {
+                    line_spans.push(ratatui::text::Span::raw(line[..start_col.min(line.len())].to_string()));
+                }
+                
+                // Selected text to end of line
+                if start_col < line.len() {
+                    line_spans.push(ratatui::text::Span::styled(
+                        line[start_col.min(line.len())..].to_string(),
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    ));
+                }
+            } else if adjusted_row == end_row {
+                // Last line of multi-line selection
+                let end_col = end_col as usize;
+                
+                // Selected text from start of line
+                if end_col > 0 {
+                    line_spans.push(ratatui::text::Span::styled(
+                        line[..end_col.min(line.len())].to_string(),
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    ));
+                }
+                
+                // Text after selection
+                if end_col < line.len() {
+                    line_spans.push(ratatui::text::Span::raw(line[end_col.min(line.len())..].to_string()));
+                }
+            } else {
+                // Middle line - entire line is selected
+                line_spans.push(ratatui::text::Span::styled(
+                    line.to_string(),
+                    Style::default().add_modifier(Modifier::REVERSED)
+                ));
+            }
+        } else {
+            // Line not in selection
+            line_spans.push(ratatui::text::Span::raw(line.to_string()));
+        }
+        
+        styled_lines.push(ratatui::text::Line::from(line_spans));
+    }
+    
+    ratatui::text::Text::from(styled_lines)
 } 

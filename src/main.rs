@@ -23,6 +23,16 @@ async fn main() -> Result<()> {
     // Create model configuration from CLI parameters
     let model_config = ModelConfig::new(cli.standard_model, cli.code_model);
 
+    // Check if we're coming from a failed ] command
+    // The command_to_check will contain "]" if it wasn't intercepted properly
+    if cli.command_to_check.len() == 1 && cli.command_to_check[0] == "]" {
+        println!("Detected issue with ']' command integration. Fixing shell integration...");
+        install_shell_integration()?;
+        println!("Shell integration fixed. Please restart your shell or run 'source ~/.zshrc'");
+        println!("Launching AI prompt interface now...");
+        return run_tui_mode("", false, model_config).await;
+    }
+
     // Handle command not found case
     if !cli.command_to_check.is_empty() {
         let cmd = cli.command_to_check.join(" ");

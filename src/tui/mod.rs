@@ -121,64 +121,98 @@ pub async fn run_ui(mut app: TuiApp) -> io::Result<()> {
                         if app.state.selection_mode {
                             // Exit selection mode if active
                             app.toggle_selection_mode();
-                        } else if app.state.loading || app.state.model_state == ModelState::Streaming {
-                            // Cancel the current response if one is in progress
-                            app.request_cancel();
+                        } else if app.state.is_streaming {
+                            // Cancel the current response if streaming
+                            let cancel_requested = app.get_cancel_requested();
+                            if let Ok(mut guard) = cancel_requested.lock() {
+                                *guard = true;
+                            }
+                            
+                            let cancel_flag = app.get_cancel_flag();
+                            if let Ok(mut guard) = cancel_flag.lock() {
+                                *guard = true;
+                            }
+                            
+                            app.state.cancel_requested = true;
+                            app.state.model_state = ModelState::Complete;
                         } else {
-                            // Exit the application if not loading
+                            // Exit the application
                             break;
                         }
-                    }
+                    },
                     KeyCode::Enter => {
                         if app.state.selection_mode {
                             // In selection mode, Enter copies selected text
-                            // Clipboard handling would go here if supported
+                            if let Err(e) = app.copy_selected_text() {
+                                eprintln!("Failed to copy text: {}", e);
+                            }
                             app.toggle_selection_mode();
                         } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                             // Shift+Enter adds a newline instead of submitting
                             app.add_newline();
-                        } else {
+                        } else if !app.state.is_streaming {
                             // Normal Enter submits the current input
                             if let Err(e) = app.submit_prompt().await {
                                 eprintln!("Error submitting prompt: {}", e);
                             }
                         }
-                    }
+                    },
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         // Exit on Ctrl+C
                         break;
-                    }
-                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        // Ctrl+S toggles selection mode
-                        app.toggle_selection_mode();
-                    }
+                    },
+                    KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Select all text (Ctrl+A)
+                        if !app.state.is_streaming {
+                            app.state.selection_mode = true;
+                            
+                            // Set selection to cover the entire response text
+                            app.state.selection_start = (0, 0);
+                            
+                            // Count lines and get length of last line
+                            let lines: Vec<&str> = app.state.response_text.lines().collect();
+                            let last_line_idx = lines.len().saturating_sub(1) as u16;
+                            let last_line_len = lines.last().map_or(0, |line| line.len()) as u16;
+                            
+                            app.state.selection_end = (last_line_idx, last_line_len);
+                            
+                            // Update the selected text
+                            if let Err(e) = app.select_all_text() {
+                                eprintln!("Failed to select all text: {}", e);
+                            }
+                        }
+                    },
                     KeyCode::F(1) => {
                         // F1 toggles thinking sections
                         app.toggle_thinking_sections();
-                    }
+                    },
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Ctrl+S toggles selection mode
+                        app.toggle_selection_mode();
+                    },
                     KeyCode::Char(c) => {
                         // Add character to input
                         app.add_char(c);
                         app.update_input_height();
-                    }
+                    },
                     KeyCode::Backspace => {
                         // Remove character from input
                         app.delete_char();
                         app.update_input_height();
-                    }
+                    },
                     KeyCode::Delete => {
                         // Forward delete
                         app.forward_delete_char();
                         app.update_input_height();
-                    }
+                    },
                     KeyCode::Left => {
                         // Move cursor left
                         app.move_cursor_left();
-                    }
+                    },
                     KeyCode::Right => {
                         // Move cursor right
                         app.move_cursor_right();
-                    }
+                    },
                     KeyCode::Up => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             // Ctrl+Up decreases scroll by 1
@@ -187,7 +221,7 @@ pub async fn run_ui(mut app: TuiApp) -> io::Result<()> {
                             // Move input cursor up a line if multi-line
                             app.move_cursor_up();
                         }
-                    }
+                    },
                     KeyCode::Down => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             // Ctrl+Down increases scroll by 1
@@ -196,17 +230,17 @@ pub async fn run_ui(mut app: TuiApp) -> io::Result<()> {
                             // Move input cursor down a line if multi-line
                             app.move_cursor_down();
                         }
-                    }
+                    },
                     KeyCode::PageUp => {
                         // Page up - scroll by a large amount
                         let page_size = 10; // Or calculate based on terminal size
                         app.page_up(page_size);
-                    }
+                    },
                     KeyCode::PageDown => {
                         // Page down - scroll by a large amount
                         let page_size = 10; // Or calculate based on terminal size
                         app.page_down(page_size);
-                    }
+                    },
                     KeyCode::Home => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             // Ctrl+Home scrolls to the top
@@ -215,7 +249,7 @@ pub async fn run_ui(mut app: TuiApp) -> io::Result<()> {
                             // Regular Home moves cursor to the start of the line
                             app.move_cursor_to_start_of_line();
                         }
-                    }
+                    },
                     KeyCode::End => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             // Ctrl+End scrolls to the bottom
@@ -224,7 +258,7 @@ pub async fn run_ui(mut app: TuiApp) -> io::Result<()> {
                             // Regular End moves cursor to the end of the line
                             app.move_cursor_to_end_of_line();
                         }
-                    }
+                    },
                     _ => {}
                 }
             } else if let Event::Mouse(mouse) = event::read()? {
@@ -238,54 +272,58 @@ pub async fn run_ui(mut app: TuiApp) -> io::Result<()> {
                         app.scroll_up();
                     }
                     MouseEventKind::Down(MouseButton::Left) => {
-                        // Left click - handle based on area
-                        if let Ok((terminal_cols, terminal_rows)) = app.get_terminal_size() {
-                            // Calculate the layout similar to draw_ui
-                            let input_height = app.state.input_height;
-                            let status_height = 3;
-                            let margin = 1;
-                            
-                            // Simple layout calculation
-                            let input_area_top = margin; 
-                            let input_area_bottom = input_area_top + input_height;
-                            
-                            let status_area_top = input_area_bottom;
-                            let status_area_bottom = status_area_top + status_height;
-                            
-                            let response_area_top = status_area_bottom;
-                            let response_area_bottom = terminal_rows - margin;
-                            
-                            let scrollbar_column = terminal_cols - margin - 1; // Last visible column
-                            
-                            // Check if click is on scrollbar
-                            if mouse.column >= scrollbar_column && 
-                               mouse.row > response_area_top && 
-                               mouse.row < response_area_bottom && 
-                               app.state.scroll_max > 0 {
-                                
-                                // Calculate relative position in scrollbar to determine scroll position
-                                let scrollbar_height = response_area_bottom - response_area_top - 2; // -2 for borders
-                                let relative_pos = mouse.row - (response_area_top + 1);
-                                let scroll_ratio = f64::from(relative_pos) / f64::from(scrollbar_height);
-                                let scroll_position = 
-                                    (f64::from(app.state.scroll_max) * scroll_ratio).round() as u16;
-                                
-                                // Set new scroll position
-                                app.state.scroll = scroll_position;
-                            } 
-                            // Check if click is in response area (for selection)
-                            else if mouse.row > response_area_top && 
-                                    mouse.row < response_area_bottom &&
-                                    app.state.selection_mode {
-                                // Handle text selection - not fully implemented
-                                // Would need to track selection start and end positions
+                        // Left mouse button down - handle clicking on the scrollbar
+                        let (width, _height) = match get_terminal_size() {
+                            Ok(size) => size,
+                            Err(e) => {
+                                eprintln!("Failed to get terminal size: {}", e);
+                                return Ok(());
                             }
-                            // Check if click is in input area (for cursor positioning)
-                            else if mouse.row > input_area_top && 
-                                    mouse.row < input_area_bottom {
-                                // Would position cursor based on click - not fully implemented
-                                // Requires mapping screen coordinates to text position
+                        };
+                        
+                        // Check if click is on the scrollbar area (rightmost 2 columns)
+                        if mouse.column >= width.saturating_sub(2) {
+                            // Calculate the click position relative to the scrollbar
+                            let response_height = app.get_response_view_height();
+                            let relative_click = mouse.row as f64 / response_height as f64;
+                            
+                            // Set scroll position based on click
+                            app.set_scroll_percentage(relative_click as f32);
+                        } else {
+                            // Calculate response area boundaries (assuming standard layout)
+                            let response_area_top = 1; // Top border and title
+                            let response_area_bottom = app.get_response_view_height() + response_area_top;
+                            
+                            // Check if click is in response area
+                            if mouse.row > response_area_top && mouse.row < response_area_bottom {
+                                // Enter selection mode if not already in it
+                                if !app.state.selection_mode {
+                                    app.toggle_selection_mode();
+                                }
+                                // Start selection at click position
+                                app.begin_selection(mouse.row - response_area_top, mouse.column);
                             }
+                        }
+                    },
+                    MouseEventKind::Drag(MouseButton::Left) => {
+                        // Handle mouse dragging for text selection
+                        if app.state.selection_mode {
+                            // Calculate response area boundaries
+                            let response_area_top = 1; // Top border and title
+                            let response_area_bottom = app.get_response_view_height() + response_area_top;
+                            
+                            // Check if drag is in response area
+                            if mouse.row > response_area_top && mouse.row < response_area_bottom {
+                                // Update selection to drag position
+                                app.update_selection(mouse.row - response_area_top, mouse.column);
+                            }
+                        }
+                    },
+                    MouseEventKind::Up(MouseButton::Left) => {
+                        // Handle mouse up for completing text selection
+                        if app.state.selection_mode {
+                            // Don't copy automatically on mouse up
+                            // Just keep the selection active for manual copy via Enter
                         }
                     },
                     _ => {}
@@ -337,6 +375,9 @@ pub async fn run_app(mut app: TuiApp, rx: mpsc::Receiver<UiMessage>) -> Result<(
         let state = app.state.clone();
         app.draw(|frame| draw_ui(frame, &state))?;
 
+        // Check if cancellation is complete and reset state if needed
+        app.reset_cancel_state();
+        
         // Poll for messages or events with timeout
         let mut event_received = false;
         
@@ -348,13 +389,19 @@ pub async fn run_app(mut app: TuiApp, rx: mpsc::Receiver<UiMessage>) -> Result<(
                         app.state.response_text = text;
                         let view_height = app.get_response_view_height();
                         app.update_scroll_max(view_height);
+                        // Update model state to Streaming when receiving updates
+                        app.state.model_state = ModelState::Streaming;
                     },
                     UiMessage::Error(error) => {
                         app.state.response_text = format!("Error: {}", error);
                         app.state.is_streaming = false;
+                        // Update model state to Error when an error occurs
+                        app.state.model_state = ModelState::Error;
                     },
                     UiMessage::StreamingComplete => {
                         app.state.is_streaming = false;
+                        // Update model state to Complete when streaming is done
+                        app.state.model_state = ModelState::Complete;
                         // If there was saved input, restore it
                         if !app.state.saved_input.is_empty() {
                             app.state.input = app.state.saved_input.clone();
@@ -372,45 +419,39 @@ pub async fn run_app(mut app: TuiApp, rx: mpsc::Receiver<UiMessage>) -> Result<(
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     match key.code {
-                        KeyCode::Esc => {
-                            if app.state.selection_mode {
-                                // Exit selection mode if active
-                                app.toggle_selection_mode();
-                            } else if app.state.is_streaming {
-                                // Cancel the current response if streaming
-                                let cancel_requested = app.get_cancel_requested();
-                                if let Ok(mut guard) = cancel_requested.lock() {
-                                    *guard = true;
-                                }
+                        KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            // Select all text (Ctrl+A)
+                            if !app.state.is_streaming {
+                                app.state.selection_mode = true;
                                 
-                                let cancel_flag = app.get_cancel_flag();
-                                if let Ok(mut guard) = cancel_flag.lock() {
-                                    *guard = true;
-                                }
+                                // Set selection to cover the entire response text
+                                app.state.selection_start = (0, 0);
                                 
-                                app.state.cancel_requested = true;
-                            } else {
-                                // Exit the application
-                                break;
-                            }
-                        },
-                        KeyCode::Enter => {
-                            if app.state.selection_mode {
-                                // In selection mode, Enter conceptually copies selected text
-                                app.toggle_selection_mode();
-                            } else if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                // Shift+Enter adds a newline instead of submitting
-                                app.add_newline();
-                            } else if !app.state.is_streaming {
-                                // Normal Enter submits the current input
-                                if let Err(e) = app.submit_prompt().await {
-                                    eprintln!("Error submitting prompt: {}", e);
+                                // Count lines and get length of last line
+                                let lines: Vec<&str> = app.state.response_text.lines().collect();
+                                let last_line_idx = lines.len().saturating_sub(1) as u16;
+                                let last_line_len = lines.last().map_or(0, |line| line.len()) as u16;
+                                
+                                app.state.selection_end = (last_line_idx, last_line_len);
+                                
+                                // Update the selected text
+                                if let Err(e) = app.select_all_text() {
+                                    eprintln!("Failed to select all text: {}", e);
                                 }
                             }
                         },
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            // Exit on Ctrl+C
-                            break;
+                            if app.state.selection_mode {
+                                // If in selection mode, copy the selected text
+                                if let Err(e) = app.copy_selected_text() {
+                                    eprintln!("Failed to copy text: {}", e);
+                                }
+                                // Exit selection mode
+                                app.toggle_selection_mode();
+                            } else {
+                                // Otherwise, exit the application
+                                break;
+                            }
                         },
                         KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             // Ctrl+S toggles selection mode
@@ -421,8 +462,8 @@ pub async fn run_app(mut app: TuiApp, rx: mpsc::Receiver<UiMessage>) -> Result<(
                             app.toggle_thinking_sections();
                         },
                         KeyCode::Char(c) => {
-                            // Add character to input
-                            app.add_char(c);
+                            // General character handler
+                            app.enter_char(c);
                         },
                         KeyCode::Backspace => {
                             // Remove character from input
@@ -501,7 +542,13 @@ pub async fn run_app(mut app: TuiApp, rx: mpsc::Receiver<UiMessage>) -> Result<(
                         },
                         MouseEventKind::Down(MouseButton::Left) => {
                             // Left mouse button down - handle clicking on the scrollbar
-                            let (width, _height) = get_terminal_size()?;
+                            let (width, _height) = match get_terminal_size() {
+                                Ok(size) => size,
+                                Err(e) => {
+                                    eprintln!("Failed to get terminal size: {}", e);
+                                    return Ok(());
+                                }
+                            };
                             
                             // Check if click is on the scrollbar area (rightmost 2 columns)
                             if mouse.column >= width.saturating_sub(2) {
@@ -512,11 +559,40 @@ pub async fn run_app(mut app: TuiApp, rx: mpsc::Receiver<UiMessage>) -> Result<(
                                 // Set scroll position based on click
                                 app.set_scroll_percentage(relative_click as f32);
                             } else {
-                                // Click anywhere else enters selection mode
-                                if !app.state.selection_mode {
-                                    app.toggle_selection_mode();
+                                // Calculate response area boundaries (assuming standard layout)
+                                let response_area_top = 1; // Top border and title
+                                let response_area_bottom = app.get_response_view_height() + response_area_top;
+                                
+                                // Check if click is in response area
+                                if mouse.row > response_area_top && mouse.row < response_area_bottom {
+                                    // Enter selection mode if not already in it
+                                    if !app.state.selection_mode {
+                                        app.toggle_selection_mode();
+                                    }
+                                    // Start selection at click position
+                                    app.begin_selection(mouse.row - response_area_top, mouse.column);
                                 }
-                                // TODO: Update selection start position
+                            }
+                        },
+                        MouseEventKind::Drag(MouseButton::Left) => {
+                            // Handle mouse dragging for text selection
+                            if app.state.selection_mode {
+                                // Calculate response area boundaries
+                                let response_area_top = 1; // Top border and title
+                                let response_area_bottom = app.get_response_view_height() + response_area_top;
+                                
+                                // Check if drag is in response area
+                                if mouse.row > response_area_top && mouse.row < response_area_bottom {
+                                    // Update selection to drag position
+                                    app.update_selection(mouse.row - response_area_top, mouse.column);
+                                }
+                            }
+                        },
+                        MouseEventKind::Up(MouseButton::Left) => {
+                            // Handle mouse up for completing text selection
+                            if app.state.selection_mode {
+                                // Don't copy automatically on mouse up
+                                // Just keep the selection active for manual copy via Enter
                             }
                         },
                         _ => {}
@@ -532,6 +608,27 @@ pub async fn run_app(mut app: TuiApp, rx: mpsc::Receiver<UiMessage>) -> Result<(
         
         // Short sleep to prevent CPU hogging
         sleep(Duration::from_millis(5)).await;
+
+        // Check if we need to update the copy notification timer
+        if app.state.text_copied_timer > 0 {
+            app.state.text_copied_timer -= 1;
+            if app.state.text_copied_timer == 0 {
+                app.state.text_copied = false;
+            }
+        }
+
+        if !app.state.cancel_requested {
+            event_received = true;
+            continue;
+        }
+        
+        // If we get here, we need to check if cancellation is complete
+        let is_streaming = app.state.is_streaming;
+        if !is_streaming && app.state.cancel_requested {
+            // Reset cancel requested flag and model state
+            app.state.cancel_requested = false;
+            app.state.model_state = ModelState::Idle;
+        }
     }
     
     Ok(())

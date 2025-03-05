@@ -36,7 +36,7 @@ pub fn install_shell_integration() -> Result<()> {
 /// # Errors
 /// Returns an error if writing to the file fails
 fn write_integration_script(integration_path: &std::path::Path) -> Result<()> {
-    let script = r#"# Super Snoofer Integration
+    let script = r###"# Super Snoofer Integration
 # Flag to prevent double execution
 typeset -g __super_snoofer_executing=0
 
@@ -58,23 +58,27 @@ function __super_snoofer_check_command_line() {
     if [[ "$cmd" == "]" ]]; then
         __super_snoofer_executing=1
         command super_snoofer --prompt ""
-        return $?
+        # Prevent shell from trying to execute ] as a command
+        return 0
     elif [[ "$cmd" == "]]" ]]; then
         __super_snoofer_executing=1
         command super_snoofer --prompt "" --codestral
-        return $?
+        # Prevent shell from trying to execute ]] as a command
+        return 0
     elif [[ "$cmd" =~ ^"][[:space:]]+" ]]; then
         local prompt="${cmd#]}"
         prompt="${prompt## }"
         __super_snoofer_executing=1
         command super_snoofer --prompt "$prompt"
-        return $?
+        # Prevent shell from trying to execute the command
+        return 0
     elif [[ "$cmd" =~ ^"]][[:space:]]+" ]]; then
         local prompt="${cmd#]]}"
         prompt="${prompt## }"
         __super_snoofer_executing=1
         command super_snoofer --prompt "$prompt" --codestral
-        return $?
+        # Prevent shell from trying to execute the command
+        return 0
     fi
     
     # Check if command exists before suggesting corrections
@@ -82,6 +86,16 @@ function __super_snoofer_check_command_line() {
     # This prevents duplicate error messages
     return 0
 }
+
+# Define shell functions for ] and ]] to avoid "command not found" errors
+# These will be invoked if the preexec hook doesn't catch the commands
+function ]() {
+    __super_snoofer_executing=1
+    command super_snoofer --prompt ""
+}
+
+# Need to use aliases instead of functions for ]] due to syntax limitations
+alias ']]'='__super_snoofer_executing=1; command super_snoofer --prompt "" --codestral'
 
 # Hook into the pre-exec function in ZSH
 autoload -Uz add-zsh-hook
@@ -91,6 +105,18 @@ add-zsh-hook preexec __super_snoofer_check_command_line
 command_not_found_handler() {
     local cmd="$1"
     shift
+    
+    # Special case for ] and ]] if they somehow made it here
+    if [[ "$cmd" == "]" ]]; then
+        __super_snoofer_executing=1
+        command super_snoofer --prompt ""
+        return 0
+    elif [[ "$cmd" == "]]" ]]; then
+        __super_snoofer_executing=1
+        command super_snoofer --prompt "" --codestral
+        return 0
+    fi
+    
     if [ -n "$cmd" ]; then
         __super_snoofer_executing=1
         if [ $# -eq 0 ]; then
@@ -102,7 +128,7 @@ command_not_found_handler() {
     fi
     return 127
 }
-"#;
+"###;
 
     fs::write(integration_path, script)?;
     
