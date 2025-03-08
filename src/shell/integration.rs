@@ -52,10 +52,12 @@ function __super_snoofer_check_command_line() {
     fi
     
     # Skip empty commands, super_snoofer itself, grep commands, aliases, and commands starting with space
-    # Also skip error messages that might be captured wrongly
+    # Also skip error messages and common system commands that don't need correction
     [[ -z "$cmd" || "$cmd" =~ ^[[:space:]]+ || "$cmd" =~ ^super_snoofer || "$cmd" =~ ^grep || "$cmd" =~ ^rg || \
        "$cmd" =~ "failed with status" || "$cmd" =~ "exit status" || "$cmd" =~ "Command failed" || \
-       "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen ]] && return 0
+       "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen || \
+       "$cmd" =~ ^nvim || "$cmd" =~ ^vim || "$cmd" =~ ^cd || "$cmd" =~ ^ls || "$cmd" =~ ^git || \
+       "$cmd" =~ ^cargo\ run || "$cmd" =~ ^cargo\ build || "$cmd" =~ ^cargo\ test ]] && return 0
     
     # Handle ] and ]] commands for AI interactions
     if [[ "$cmd" == "]" ]]; then
@@ -87,22 +89,26 @@ function __super_snoofer_check_command_line() {
     # Only process valid commands (first word)
     local base_cmd=$(echo "$cmd" | awk '{print $1}')
     
+    # Skip if the command or alias exists (to avoid intercepting valid commands)
+    if type "$base_cmd" > /dev/null 2>&1; then
+        return 0
+    fi
+    
     # Check for known command typos using super_snoofer (modular approach)
     # This handles both commands and subcommands like "cargo urn"
     # It's dynamically based on learned corrections, not hardcoded for specific commands
     local suggestion
     suggestion=$(__super_snoofer_get_suggestion "$cmd")
     
-    if [[ -n "$suggestion" && "$suggestion" != "$cmd" ]]; then
+    # Only suggest if we got a non-empty, different suggestion
+    if [[ -n "$suggestion" && "$suggestion" != "$cmd" && "$suggestion" != *"failed with status"* && "$suggestion" != *"exit status"* ]]; then
         echo "🐺 Did you mean '$suggestion'? Executing that instead..."
         __super_snoofer_executing=1
         eval "$suggestion"
         return 1  # Prevent execution of the original command
     fi
     
-    # Check if command exists before suggesting corrections
-    # Only handle command-not-found within the hook, not in command_not_found_handler
-    # This prevents duplicate error messages
+    # Let the normal command-not-found handler take over if we reach here
     return 0
 }
 
@@ -117,8 +123,9 @@ function __super_snoofer_get_suggestion() {
         return
     fi
     
-    # Skip alias, which, echo and other shell commands that don't need suggestions
-    if [[ "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen ]]; then
+    # Skip system commands and common utilities that don't need suggestions
+    if [[ "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen || \
+          "$cmd" =~ ^nvim || "$cmd" =~ ^vim || "$cmd" =~ ^cd || "$cmd" =~ ^ls || "$cmd" =~ ^git ]]; then
         echo "$cmd"
         return
     fi
@@ -150,17 +157,22 @@ function __super_snoofer_get_suggestion() {
                 echo "cargo install $cargo_args"
                 return
                 ;;
+            # No correction for valid cargo commands
+            "run"|"build"|"test"|"check"|"update"|"clean"|"doc"|"publish"|"install")
+                echo "$cmd"
+                return
+                ;;
         esac
     fi
     
     # Call super_snoofer in quiet mode to check if this is a known typo
     result=$(super_snoofer full-command "$cmd" 2>/dev/null)
     
-    # If super_snoofer returned a suggestion, use it
-    if [[ $? -eq 0 && -n "$result" && "$result" != "$cmd" ]]; then
+    # If super_snoofer returned a valid suggestion, use it
+    if [[ $? -eq 0 && -n "$result" && "$result" != "$cmd" && "$result" != *"failed with status"* && "$result" != *"exit status"* ]]; then
         echo "$result"
     else
-        # No suggestion found
+        # No suggestion found or invalid suggestion
         echo "$cmd"
     fi
 }
