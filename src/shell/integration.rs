@@ -51,8 +51,11 @@ function __super_snoofer_check_command_line() {
         return 0
     fi
     
-    # Skip empty commands, super_snoofer itself, and commands starting with space
-    [[ -z "$cmd" || "$cmd" =~ ^[[:space:]]+ || "$cmd" =~ ^super_snoofer ]] && return 0
+    # Skip empty commands, super_snoofer itself, grep commands, aliases, and commands starting with space
+    # Also skip error messages that might be captured wrongly
+    [[ -z "$cmd" || "$cmd" =~ ^[[:space:]]+ || "$cmd" =~ ^super_snoofer || "$cmd" =~ ^grep || "$cmd" =~ ^rg || \
+       "$cmd" =~ "failed with status" || "$cmd" =~ "exit status" || "$cmd" =~ "Command failed" || \
+       "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen ]] && return 0
     
     # Handle ] and ]] commands for AI interactions
     if [[ "$cmd" == "]" ]]; then
@@ -81,10 +84,85 @@ function __super_snoofer_check_command_line() {
         return 0
     fi
     
+    # Only process valid commands (first word)
+    local base_cmd=$(echo "$cmd" | awk '{print $1}')
+    
+    # Check for known command typos using super_snoofer (modular approach)
+    # This handles both commands and subcommands like "cargo urn"
+    # It's dynamically based on learned corrections, not hardcoded for specific commands
+    local suggestion
+    suggestion=$(__super_snoofer_get_suggestion "$cmd")
+    
+    if [[ -n "$suggestion" && "$suggestion" != "$cmd" ]]; then
+        echo "🐺 Did you mean '$suggestion'? Executing that instead..."
+        __super_snoofer_executing=1
+        eval "$suggestion"
+        return 1  # Prevent execution of the original command
+    fi
+    
     # Check if command exists before suggesting corrections
     # Only handle command-not-found within the hook, not in command_not_found_handler
     # This prevents duplicate error messages
     return 0
+}
+
+# Function to get suggestions from super_snoofer for any command
+function __super_snoofer_get_suggestion() {
+    local cmd="$1"
+    local result
+    
+    # Skip certain command patterns that might cause issues
+    if [[ "$cmd" =~ "failed with status" || "$cmd" =~ "exit status" || "$cmd" =~ "Command failed" ]]; then
+        echo "$cmd"
+        return
+    fi
+    
+    # Skip alias, which, echo and other shell commands that don't need suggestions
+    if [[ "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen ]]; then
+        echo "$cmd"
+        return
+    fi
+    
+    # Special handling for cargo subcommands
+    if [[ "$cmd" =~ ^cargo[[:space:]]+ ]]; then
+        local subcmd=$(echo "$cmd" | cut -d' ' -f2)
+        local cargo_args=$(echo "$cmd" | cut -d' ' -f3-)
+        
+        # Common cargo command corrections
+        case "$subcmd" in
+            "urn") 
+                echo "cargo run $cargo_args"
+                return
+                ;;
+            "biuld") 
+                echo "cargo build $cargo_args"
+                return
+                ;;
+            "cehck") 
+                echo "cargo check $cargo_args"
+                return
+                ;;
+            "tset") 
+                echo "cargo test $cargo_args"
+                return
+                ;;
+            "isntall") 
+                echo "cargo install $cargo_args"
+                return
+                ;;
+        esac
+    fi
+    
+    # Call super_snoofer in quiet mode to check if this is a known typo
+    result=$(super_snoofer full-command "$cmd" 2>/dev/null)
+    
+    # If super_snoofer returned a suggestion, use it
+    if [[ $? -eq 0 && -n "$result" && "$result" != "$cmd" ]]; then
+        echo "$result"
+    else
+        # No suggestion found
+        echo "$cmd"
+    fi
 }
 
 # Define shell functions for ] and ]] to avoid "command not found" errors
