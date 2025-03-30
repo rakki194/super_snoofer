@@ -10,6 +10,8 @@ use super_snoofer::{
 
 use crate::ollama::ModelConfig;
 use crate::tui::run_tui_mode;
+// Import ASCII art constants from ratui_lib
+use ratui_lib::{GAEROS_ASCII, KADE_ASCII};
 
 mod cli;
 use cli::{Cli, Commands};
@@ -22,6 +24,17 @@ async fn main() -> Result<()> {
     
     // Create model configuration from CLI parameters
     let model_config = ModelConfig::new(cli.standard_model, cli.code_model);
+
+    // Check for easter egg commands
+    if cli.command_to_check.len() == 1 {
+        if cli.command_to_check[0] == "--gaeros" {
+            println!("{}", GAEROS_ASCII);
+            return Ok(());
+        } else if cli.command_to_check[0] == "--kade" {
+            println!("{}", KADE_ASCII);
+            return Ok(());
+        }
+    }
 
     // Check if we're coming from a failed ] command
     // The command_to_check will contain "]" if it wasn't intercepted properly
@@ -42,6 +55,18 @@ async fn main() -> Result<()> {
     // Handle prompt mode
     if let Some(prompt) = cli.prompt.as_ref() {
         return run_tui_mode(prompt, cli.codestral, model_config).await;
+    }
+
+    // Handle easter egg commands as regular flags (alternative method)
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 2 {
+        if args[1] == "--gaeros" {
+            println!("{}", GAEROS_ASCII);
+            return Ok(());
+        } else if args[1] == "--kade" {
+            println!("{}", KADE_ASCII);
+            return Ok(());
+        }
     }
 
     match &cli.command {

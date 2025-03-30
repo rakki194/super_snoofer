@@ -36,6 +36,7 @@ futures = "0.3.31"
 futures-util = "0.3.31"
 clap = { version = "4.5.31", features = ["derive"] }
 reqwest = { version = "0.12.12", features = ["json", "stream"] }
+ratui_lib = { path = "../../ratui_lib" }
 
 [dev-dependencies]
 tempfile = "3.17.1"

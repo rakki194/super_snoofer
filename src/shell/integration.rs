@@ -1,17 +1,15 @@
 #![warn(clippy::all, clippy::pedantic)]
 
 use anyhow::Result;
-use std::{
-    fs,
-    io::Write,
-};
+use std::{fs, io::Write};
 
 /// Installs shell integration for Super Snoofer
-/// 
+///
 /// # Errors
 /// Returns an error if the shell integration installation fails due to file system operations or permission issues
 pub fn install_shell_integration() -> Result<()> {
-    let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let home_dir =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let config_dir = home_dir.join(".config").join("super_snoofer");
     let integration_path = config_dir.join("shell_integration.zsh");
     let zshrc_path = home_dir.join(".zshrc");
@@ -21,94 +19,80 @@ pub fn install_shell_integration() -> Result<()> {
 
     // Create the integration script
     write_integration_script(&integration_path)?;
-    
+
     // Add source directive to shell config files if not already present
     add_source_directive(&zshrc_path, &integration_path)?;
 
     println!("Super Snoofer shell integration installed successfully.");
     println!("Please restart your shell or run 'source ~/.zshrc' to activate it.");
-    
+
     Ok(())
 }
 
 /// Writes the shell integration script to the specified path
-/// 
+///
 /// # Errors
 /// Returns an error if writing to the file fails
 fn write_integration_script(integration_path: &std::path::Path) -> Result<()> {
-    let script = r###"# Super Snoofer Integration
+    let script = r###"# Super Snoofer Integration - Fixed Version v2
 # Flag to prevent double execution
 typeset -g __super_snoofer_executing=0
 
 function __super_snoofer_check_command_line() {
-    local cmd="$1"
-    shift
-    local args=("$@")
-    
+    # Get the raw command line as passed to preexec
+    local raw_cmd="$1"
     # Skip if we're already executing a super_snoofer command
     if (( __super_snoofer_executing )); then
         __super_snoofer_executing=0
         return 0
     fi
     
-    # Skip empty commands, super_snoofer itself, grep commands, aliases, and commands starting with space
-    # Also skip error messages and common system commands that don't need correction
-    [[ -z "$cmd" || "$cmd" =~ ^[[:space:]]+ || "$cmd" =~ ^super_snoofer || "$cmd" =~ ^grep || "$cmd" =~ ^rg || \
-       "$cmd" =~ "failed with status" || "$cmd" =~ "exit status" || "$cmd" =~ "Command failed" || \
-       "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen || \
-       "$cmd" =~ ^nvim || "$cmd" =~ ^vim || "$cmd" =~ ^cd || "$cmd" =~ ^ls || "$cmd" =~ ^git || \
-       "$cmd" =~ ^cargo\ run || "$cmd" =~ ^cargo\ build || "$cmd" =~ ^cargo\ test ]] && return 0
+    # Check for pipes, redirects, and other special shell syntax that should NOT be intercepted
+    if [[ "$raw_cmd" == *"|"* || "$raw_cmd" == *">"* || "$raw_cmd" == *"<"* || 
+          "$raw_cmd" == *"&"* || "$raw_cmd" == *";"* || "$raw_cmd" == *"&&"* || 
+          "$raw_cmd" == *"||"* ]]; then
+        # Let the shell handle these complex commands normally
+        return 0
+    fi
     
-    # Handle ] and ]] commands for AI interactions
+    # Get just the first word (command name) for basic checks
+    local cmd=$(echo "$raw_cmd" | awk '{print $1}')
+    
+    # Handle the special Super Snoofer AI commands
     if [[ "$cmd" == "]" ]]; then
         __super_snoofer_executing=1
         command super_snoofer --prompt ""
-        # Prevent shell from trying to execute ] as a command
-        return 0
+        return 1  # Prevent original command execution
     elif [[ "$cmd" == "]]" ]]; then
         __super_snoofer_executing=1
         command super_snoofer --prompt "" --codestral
-        # Prevent shell from trying to execute ]] as a command
-        return 0
-    elif [[ "$cmd" =~ ^"][[:space:]]+" ]]; then
-        local prompt="${cmd#]}"
+        return 1  # Prevent original command execution
+    elif [[ "$raw_cmd" =~ ^"][[:space:]]+" ]]; then
+        local prompt="${raw_cmd#]}"
         prompt="${prompt## }"
         __super_snoofer_executing=1
         command super_snoofer --prompt "$prompt"
-        # Prevent shell from trying to execute the command
-        return 0
-    elif [[ "$cmd" =~ ^"]][[:space:]]+" ]]; then
-        local prompt="${cmd#]]}"
+        return 1  # Prevent original command execution
+    elif [[ "$raw_cmd" =~ ^"]][[:space:]]+" ]]; then
+        local prompt="${raw_cmd#]]}"
         prompt="${prompt## }"
         __super_snoofer_executing=1
         command super_snoofer --prompt "$prompt" --codestral
-        # Prevent shell from trying to execute the command
+        return 1  # Prevent original command execution
+    fi
+    
+    # Skip checking for typos in these common commands
+    if [[ "$cmd" =~ ^(ls|cd|pwd|man|echo|cat|grep|find|git|vim|nvim|code|python|python3|cargo|rm|cp|mv|mkdir|touch|chmod|npm|yarn|go|make|docker|kubectl|ssh|curl|wget)$ ]]; then
         return 0
     fi
     
-    # Only process valid commands (first word)
-    local base_cmd=$(echo "$cmd" | awk '{print $1}')
-    
-    # Skip if the command or alias exists (to avoid intercepting valid commands)
-    if type "$base_cmd" > /dev/null 2>&1; then
+    # Only process commands that don't exist
+    if type "$cmd" > /dev/null 2>&1; then
         return 0
     fi
     
-    # Check for known command typos using super_snoofer (modular approach)
-    # This handles both commands and subcommands like "cargo urn"
-    # It's dynamically based on learned corrections, not hardcoded for specific commands
-    local suggestion
-    suggestion=$(__super_snoofer_get_suggestion "$cmd")
-    
-    # Only suggest if we got a non-empty, different suggestion
-    if [[ -n "$suggestion" && "$suggestion" != "$cmd" && "$suggestion" != *"failed with status"* && "$suggestion" != *"exit status"* ]]; then
-        echo "🐺 Did you mean '$suggestion'? Executing that instead..."
-        __super_snoofer_executing=1
-        eval "$suggestion"
-        return 1  # Prevent execution of the original command
-    fi
-    
-    # Let the normal command-not-found handler take over if we reach here
+    # At this point, we have a simple command that doesn't exist
+    # Let the command_not_found_handler take care of it
     return 0
 }
 
@@ -125,7 +109,8 @@ function __super_snoofer_get_suggestion() {
     
     # Skip system commands and common utilities that don't need suggestions
     if [[ "$cmd" =~ ^alias || "$cmd" =~ ^which || "$cmd" =~ ^echo || "$cmd" =~ ^compgen || \
-          "$cmd" =~ ^nvim || "$cmd" =~ ^vim || "$cmd" =~ ^cd || "$cmd" =~ ^ls || "$cmd" =~ ^git ]]; then
+          "$cmd" =~ ^nvim || "$cmd" =~ ^vim || "$cmd" =~ ^cd || "$cmd" =~ ^ls || "$cmd" =~ ^git || \
+          "$cmd" =~ ^python || "$cmd" =~ ^python3 || "$cmd" =~ ^pip || "$cmd" =~ ^pip3 ]]; then
         echo "$cmd"
         return
     fi
@@ -178,7 +163,6 @@ function __super_snoofer_get_suggestion() {
 }
 
 # Define shell functions for ] and ]] to avoid "command not found" errors
-# These will be invoked if the preexec hook doesn't catch the commands
 function ]() {
     __super_snoofer_executing=1
     command super_snoofer --prompt ""
@@ -191,10 +175,21 @@ alias ']]'='__super_snoofer_executing=1; command super_snoofer --prompt "" --cod
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __super_snoofer_check_command_line
 
+# Save the original command_not_found_handler if it exists
+if (( ${+functions[command_not_found_handler]} )); then
+    functions[__original_command_not_found_handler]=$functions[command_not_found_handler]
+fi
+
 # Super Snoofer command-not-found handler
+# This only runs when a command truly does not exist
 command_not_found_handler() {
     local cmd="$1"
     shift
+    
+    # Skip handling for empty commands
+    if [[ -z "$cmd" ]]; then
+        return 127
+    fi
     
     # Special case for ] and ]] if they somehow made it here
     if [[ "$cmd" == "]" ]]; then
@@ -207,34 +202,35 @@ command_not_found_handler() {
         return 0
     fi
     
-    if [ -n "$cmd" ]; then
-        __super_snoofer_executing=1
-        if [ $# -eq 0 ]; then
-            command super_snoofer -- "$cmd"
-        else
-            command super_snoofer -- "$cmd" "$@"
-        fi
-        return $?
+    # For all other commands, use super_snoofer to help
+    __super_snoofer_executing=1
+    if [ $# -eq 0 ]; then
+        command super_snoofer -- "$cmd"
+    else
+        command super_snoofer -- "$cmd" "$@"
     fi
-    return 127
+    return $?
 }
 "###;
 
     fs::write(integration_path, script)?;
-    
+
     Ok(())
 }
 
 /// Adds a source directive to the shell configuration file if not already present
-/// 
+///
 /// # Errors
 /// Returns an error if reading from or writing to the shell configuration file fails
-fn add_source_directive(zshrc_path: &std::path::Path, integration_path: &std::path::Path) -> Result<()> {
+fn add_source_directive(
+    zshrc_path: &std::path::Path,
+    integration_path: &std::path::Path,
+) -> Result<()> {
     let integration_path_str = integration_path.to_string_lossy();
     let source_line = format!("source {integration_path_str}");
-    
+
     let mut add_to_zshrc = true;
-    
+
     // Check if the source directive already exists in .zshrc
     if zshrc_path.exists() {
         let zshrc_content = fs::read_to_string(zshrc_path)?;
@@ -242,27 +238,28 @@ fn add_source_directive(zshrc_path: &std::path::Path, integration_path: &std::pa
             add_to_zshrc = false;
         }
     }
-    
+
     // Add the source directive to .zshrc if needed
     if add_to_zshrc {
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
             .open(zshrc_path)?;
-            
+
         writeln!(file, "\n# Super Snoofer shell integration")?;
         writeln!(file, "{source_line}")?;
     }
-    
+
     Ok(())
 }
 
 /// Uninstalls Super Snoofer shell integration
-/// 
+///
 /// # Errors
 /// Returns an error if the uninstallation fails due to file system operations or permission issues
 pub fn uninstall_shell_integration() -> Result<()> {
-    let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let home_dir =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let config_dir = home_dir.join(".config").join("super_snoofer");
     let integration_path = config_dir.join("shell_integration.zsh");
     let zshrc_path = home_dir.join(".zshrc");
@@ -277,8 +274,10 @@ pub fn uninstall_shell_integration() -> Result<()> {
     let integration_path_str = integration_path.to_string_lossy();
     let new_content = content
         .lines()
-        .filter(|line| !line.contains("Source Super Snoofer integration") && 
-                       !line.contains(&*integration_path_str))
+        .filter(|line| {
+            !line.contains("Source Super Snoofer integration")
+                && !line.contains(&*integration_path_str)
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -343,4 +342,4 @@ command_not_found_handle() {{
         }
         _ => Err(anyhow::anyhow!("Unsupported shell: {}", shell)),
     }
-} 
+}
